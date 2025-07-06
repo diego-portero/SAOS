@@ -333,7 +333,7 @@ class ShackHartmann:
 
         centroids = torch.stack((x_c, y_c), dim=1)
 
-        return centroids
+        return centroids.cpu().numpy()
 #%% DIFFRACTIVE
 
     def initialize_flux(self, src, norm_flux_map):
