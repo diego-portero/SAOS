@@ -290,7 +290,8 @@ class CorrelatingShackHartmann:
 
         # Compute cross-correlation
 
-        cross_correlation = torch.abs(torch.fft.fftshift(torch.fft.ifft2(subaps_fft * pseudoref_fft.conj(), norm='forward', dim=(-2, -1)), dim=(-2,-1)))
+        cross_correlation_complex = torch.fft.fftshift(torch.fft.ifft2(subaps_fft * pseudoref_fft.conj(), norm='forward', dim=(-2, -1)), dim=(-2,-1))
+        cross_correlation = cross_correlation_complex.real**2 + cross_correlation_complex.imag**2
 
         return cross_correlation
 
@@ -310,23 +311,46 @@ class CorrelatingShackHartmann:
         np.ndarray
             X and Y centroids per subaperture.
         """
-        im = np.atleast_3d(image.numpy())
 
-        threshold = np.partition(im.reshape(im.shape[0],-1), np.prod(im[0,:,:].shape) - use_brightest, axis=-1)[:, -use_brightest]
+        n_subap, H, W = image.shape
 
-        # Filtering those value below the threshold
-        im[im<threshold[:,None,None]] = 0
+        # flatten each subap
+        flat = image.view(n_subap, -1)
 
-        centroid_out         = np.zeros([im.shape[0],2])
-        X_map, Y_map= np.meshgrid(np.arange(im.shape[1]),np.arange(im.shape[2]))
-        X_coord_map = np.atleast_3d(X_map).T
-        Y_coord_map = np.atleast_3d(Y_map).T
+        # Obtener umbral para los brightest
+        topk_vals, _ = torch.topk(flat, use_brightest, dim=1)
+        thresholds = topk_vals[:, -1].unsqueeze(1)
 
-        norma                   = np.sum(np.sum(im,axis=1),axis=1)
+        # Máscara para pixels válidos
+        mask = flat >= thresholds
 
-        centroid_out[:,0]    = np.sum(np.sum(im*X_coord_map,axis=1),axis=1)/norma
-        centroid_out[:,1]    = np.sum(np.sum(im*Y_coord_map,axis=1),axis=1)/norma
-        return centroid_out
+        # Aplicar máscara
+        filtered = flat * mask
+
+        # Restaurar forma original
+        filtered = filtered.view(n_subap, H, W)
+
+        # Crear mapas de coordenadas
+        yy, xx = torch.meshgrid(
+            torch.arange(H, device=image.device, dtype=image.dtype),
+            torch.arange(W, device=image.device, dtype=image.dtype),
+            indexing='ij'
+        )
+
+        # Expandir para batch
+        xx = xx.unsqueeze(0)
+        yy = yy.unsqueeze(0)
+
+        # Calcular normalización (suma total)
+        norm = filtered.sum(dim=(1, 2))
+
+        # Calcular centroides
+        x_c = (filtered * xx).sum(dim=(1, 2)) / norm
+        y_c = (filtered * yy).sum(dim=(1, 2)) / norm
+
+        centroids = torch.stack((x_c, y_c), dim=1)
+
+        return centroids.cpu().numpy()
 #%% DIFFRACTIVE
 
     def initialize_flux(self, src, norm_flux_map):
@@ -619,7 +643,7 @@ class CorrelatingShackHartmann:
                     
                     index_valid += 1
 
-        return torch.Tensor(subaps).contiguous()
+        return torch.Tensor(subaps).contiguous().to(self.device)
         
     #%% GEOMETRIC    
          
@@ -686,7 +710,7 @@ class CorrelatingShackHartmann:
 
         # Check if we have a pseudo reference 
         if self.pseudoref is None:
-            self.pseudoref = torch.clone(subaps[0,:,:]).contiguous()
+            self.pseudoref = torch.clone(subaps[0,:,:]).contiguous().to(self.device)
 
         # Compute correlation images
         correlation_images = self.cross_correlate(subaps, self.pseudoref)
