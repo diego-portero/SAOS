@@ -437,9 +437,12 @@ class ShackHartmann:
         t6 = time.time()
         # Shift zero frequency to center
         psf = torch.fft.fftshift(psf, dim=(-2, -1))
+        self.logger.warning(psf.device)
+        self.logger.warning(phase_rescaled_valids.device)
         t7 = time.time()
         # Compute normalized intensity
-        psf = torch.abs(psf) ** 2
+        psf = psf.real**2 + psf.imag **2
+        # psf = torch.abs(psf) ** 2
         # Crop to desired region
         psf = psf[:, start:end, start:end].cpu().numpy()
         t5 = time.time()
