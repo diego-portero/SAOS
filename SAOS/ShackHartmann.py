@@ -807,10 +807,10 @@ class ShackHartmann:
         t2 = time.time()
         signal, signal_2D, noisy_frame = self.wfs_integrate(ideal_frame, I)                
         t3 = time.time()
-        self.logger.info(f'Get PSF: {(t1-t0)*1000}')
-        self.logger.info(f'Create full frame: {(t2-t1)*1000}')
-        self.logger.info(f'Integrate: {(t3-t2)*1000}')
-        self.logger.info(f'Total: {(t3-t0)*1000}')
+        self.logger.debug(f'Get PSF: {(t1-t0)*1000}')
+        self.logger.debug(f'Create full frame: {(t2-t1)*1000}')
+        self.logger.debug(f'Integrate: {(t3-t2)*1000}')
+        self.logger.debug(f'Total: {(t3-t0)*1000}')
         return signal, signal_2D, noisy_frame
 
     def print_properties(self):
