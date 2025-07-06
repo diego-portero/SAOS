@@ -421,11 +421,15 @@ class ShackHartmann:
         row_start, row_end = rows[0].item(), rows[-1].item() + 1
         col_start, col_end = cols[0].item(), cols[-1].item() + 1
         # Allocate full tensor
-        cube_em = torch.zeros((self.nSubap**2, nFFT, nFFT), dtype=torch.complex64).to(self.device)
+        t8 = time.time()
+        cube_em = torch.zeros((self.nSubap**2, nFFT, nFFT), dtype=torch.complex64, device=self.device)
         sub_mask = square_pupil_torch[row_start:row_end, col_start:col_end].float()
+        t9 = time.time()
         # Exponential
-        self.logger.warning(f'{sub_mask.shape}, {phase_rescaled_valids.shape}, {sub_mask.device}, {phase_rescaled_valids.device}, {phase_rescaled_valids.dtype}')
         exp_block = torch.polar(sub_mask, phase_rescaled_valids)
+        self.logger.info(f'Pupil: {t8-t3}, Submask+cube{t9-t8}, exp:{time.time()-t9}')
+        self.logger.warning(f'{sub_mask.shape}, {phase_rescaled_valids.shape}, {sub_mask.device}, {phase_rescaled_valids.device}, {phase_rescaled_valids.dtype}')
+
 
         cube_em[:, row_start:row_end, col_start:col_end] = exp_block
         # Apply light scaling
