@@ -699,11 +699,15 @@ class ShackHartmann:
             Slopes 1D, slopes 2D, and final noisy image.
         """
         # propagate to detector to add noise and detector effects
+        t0 = time.time()
         noisy_frame = self.cam.integrate(ideal_frame)
+        t1 = time.time()
         subaps = self.get_subaps(noisy_frame)
+        t2 = time.time()
 
         # compute the centroid on valid subaperture
         centroid_lenslets = self.centroid(subaps, self.use_brightest)
+        t3 = time.time()
         
         # discard nan and inf values
         val_inf = np.where(np.isinf(centroid_lenslets))
@@ -728,7 +732,7 @@ class ShackHartmann:
         
         signal_2D                      = signal_2D/self.slopes_units
         signal                         = signal_2D[self.valid_slopes_maps]
-        
+        self.logger.info(f'Integrate: {t1-t0}, get_subaps: {t2-t1}, centroid: {t3-t2}, slopes: {time.time()-t3}')
         return signal, signal_2D, noisy_frame
     
     # Receives the phase [rad]] and return the slopes measured by the SH in [px]
