@@ -421,15 +421,10 @@ class ShackHartmann:
         row_start, row_end = rows[0].item(), rows[-1].item() + 1
         col_start, col_end = cols[0].item(), cols[-1].item() + 1
         # Allocate full tensor
-        t8 = time.time()
         cube_em = torch.zeros((self.nSubap**2, nFFT, nFFT), dtype=torch.complex64, device=self.device)
         sub_mask = square_pupil_torch[row_start:row_end, col_start:col_end].float()
-        t9 = time.time()
         # Exponential
         exp_block = torch.polar(sub_mask, phase_rescaled_valids)
-        self.logger.info(f'Pupil: {t8-t3}, Submask+cube{t9-t8}, exp:{time.time()-t9}')
-        self.logger.warning(f'{sub_mask.shape}, {phase_rescaled_valids.shape}, {sub_mask.device}, {phase_rescaled_valids.device}, {phase_rescaled_valids.dtype}')
-
 
         cube_em[:, row_start:row_end, col_start:col_end] = exp_block
         # Apply light scaling
@@ -437,22 +432,18 @@ class ShackHartmann:
         t4 = time.time()
         # Get the PSF
         psf = torch.fft.fft2(cube_em, dim=(-2, -1), norm='forward')  # same as dividing by nFFT²
-        t6 = time.time()
+        t5 = time.time()
         # Shift zero frequency to center
         psf = torch.fft.fftshift(psf, dim=(-2, -1))
-        t7 = time.time()
         # Compute normalized intensity
         psf = psf.real**2 + psf.imag **2
-        # psf = torch.abs(psf) ** 2
         # Crop to desired region
         psf = psf[:, start:end, start:end].cpu().numpy()
-        t5 = time.time()
         
-        self.logger.info(f'ShackHartmann::get_psf - Time taken for each step: '
+        self.logger.debug(f'ShackHartmann::get_psf - Time taken for each step: '
                          f'Rescale input phase: {t1-t0} [s], Reshape into subaps: {t2-t1} [s], Interpolate to npix_lenslet: {t3-t2} [s], '
                          f'Compute exponential: {t4-t3} [s], PSF: {t5-t4} [s], Total processing time: {t5-t0}')
-        self.logger.info(f'FFT: {t6-t4}, Shift: {t7-t6}, Abs: {t5-t7}')
-        return psf
+        return psf 
   
     def create_full_frame(self, subaps):
         """
