@@ -101,6 +101,8 @@ class CorrelatingShackHartmann:
         self.threshold_convolution          = threshold_convolution
         self.use_brightest                  = use_brightest
         self.unit_in_rad                    = unit_in_rad
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
        
         # Subapeture definition
         self.subaperture_size           = telescope.D / self.nSubap
@@ -396,15 +398,16 @@ class CorrelatingShackHartmann:
 
         t0 = time.time()
         # Rescale the phase
-        input_phase_torch = torch.from_numpy(phase).contiguous()
-        square_pupil_torch = torch.from_numpy(square_pupil).contiguous()
+        input_phase_torch = torch.from_numpy(phase).contiguous().to(self.device)
+        square_pupil_torch = torch.from_numpy(square_pupil).contiguous().to(self.device)
 
         phase_rescaled = torch.nn.functional.interpolate(input_phase_torch.unsqueeze(0), 
                                                             size=(self.nSubap*self.npix_phase, self.nSubap*self.npix_phase), 
                                                             mode='bilinear', align_corners=True).squeeze(0).contiguous()
         t1 = time.time()
         # Reshape the subapertures to a grid of subapertures. The sensor can be zeropadded, so the phase is filling the central part of the subaperture
-        phase_reshaped = torch.empty((self.nSubap**2, input_phase_torch.shape[0], self.npix_phase+1, self.npix_phase+1), dtype=torch.float32).contiguous()
+        phase_reshaped = torch.empty((self.nSubap**2, input_phase_torch.shape[0], 
+                                      self.npix_phase+1, self.npix_phase+1), dtype=torch.float32, device=self.device).contiguous()
 
         C, H, W = phase_rescaled.shape
 
@@ -439,19 +442,17 @@ class CorrelatingShackHartmann:
         row_start, row_end = rows[0].item(), rows[-1].item() + 1
         col_start, col_end = cols[0].item(), cols[-1].item() + 1
         # Allocate full tensor
-        cube_em = torch.zeros((self.nSubap**2, input_phase_torch.shape[0], nFFT, nFFT), dtype=torch.complex64)
+        cube_em = torch.zeros((self.nSubap**2, input_phase_torch.shape[0], nFFT, nFFT), dtype=torch.complex64, device=self.device)
         sub_mask = square_pupil_torch[row_start:row_end, col_start:col_end].float()
         # Exponential
-        real = torch.cos(phase_rescaled_valids)
-        imag = torch.sin(phase_rescaled_valids)
-        exp_block = sub_mask * (real + 1j * imag)
+        exp_block = torch.polar(sub_mask, phase_rescaled_valids)
 
         cube_em[self.valid_subapertures_1D,:, row_start:row_end, col_start:col_end] = exp_block
         # Apply light scaling
         # cube_em *= np.sqrt(cube_flux) * phasor_tiled
         t4 = time.time()
         # Get the PSF
-        psf = torch.zeros((self.nSubap**2, input_phase_torch.shape[0], npix_sun, npix_sun), dtype=torch.float32)
+        psf = torch.zeros((self.nSubap**2, input_phase_torch.shape[0], npix_sun, npix_sun), dtype=torch.float32, device=self.device)
 
         fft_res = torch.fft.fft2(cube_em[self.valid_subapertures_1D, :, :, :], dim=(-2, -1), norm='forward')  # same as dividing by nFFT²
 
@@ -459,12 +460,12 @@ class CorrelatingShackHartmann:
         fft_res = torch.fft.fftshift(fft_res, dim=(-2, -1))
 
         # Compute normalized intensity
-        fft_res = torch.abs(fft_res) ** 2
+        fft_res = fft_res.real**2 + fft_res.imag **2
         # Crop to desired region
         psf[self.valid_subapertures_1D, :, :, :] = fft_res[:, :, row_start:row_end, col_start:col_end]
         t5 = time.time()
         
-        self.logger.debug(f'CorrelatingShackHartmann::get_psf - Time taken for each step: '
+        self.logger.info(f'CorrelatingShackHartmann::get_psf - Time taken for each step: '
                          f'Rescale input phase: {t1-t0} [s], Reshape into subaps: {t2-t1} [s], Interpolate to npix_sun: {t3-t2} [s], '
                          f'Compute exponential: {t4-t3} [s], PSF: {t5-t4} [s], Total processing time: {t5-t0}')
         return psf
@@ -472,7 +473,7 @@ class CorrelatingShackHartmann:
     def compute_images(self, psf, subDirs_sun, new_px):
         
         # Convert to Tensor
-        sun_torch = torch.from_numpy(subDirs_sun).contiguous() # 4D: 
+        sun_torch = torch.from_numpy(subDirs_sun).contiguous().to(self.device) # 4D: 
         sun_torch = sun_torch.view(sun_torch.shape[0], sun_torch.shape[1], -1).permute(2, 0, 1)
 
         # Dowsample the sun to match the WFS plate scale
@@ -487,14 +488,15 @@ class CorrelatingShackHartmann:
         psf_fft = torch.fft.fft2(psf[self.valid_subapertures_1D, :, :, :], norm='forward', dim=(-2, -1))
 
         # Convolute
+        sun_patches_complex = torch.fft.fftshift(torch.fft.ifft2(sun_fft*psf_fft, norm='forward', dim=(-2, -1)), dim=(-2, -1))
 
-        sun_patches = torch.abs(torch.fft.fftshift(torch.fft.ifft2(sun_fft*psf_fft, norm='forward', dim=(-2, -1)), dim=(-2, -1)))
+        sun_patches = sun_patches_complex.real**2 + sun_patches_complex.imag**2
  
         return sun_patches
     
     def merges_images(self, sun_patches, src):
         # Resize the 2D filter
-        filter_2D_torch = torch.from_numpy(src.filter_2D).contiguous()
+        filter_2D_torch = torch.from_numpy(src.filter_2D).contiguous().to(self.device)
         filter_2D_torch = filter_2D_torch.view(filter_2D_torch.shape[0], filter_2D_torch.shape[1], -1).permute(2, 0, 1)
         new_size = np.round(src.subDirs_coordinates[2,0,0] / self.plate_scale).astype(int)
         filter_2D_torch = torch.nn.functional.interpolate(filter_2D_torch.unsqueeze(0), size=(new_size, new_size), 
@@ -504,15 +506,17 @@ class CorrelatingShackHartmann:
 
         sun_PSF_combined = torch.zeros(sun_patches.shape[0], np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                                              np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                                             dtype=torch.float32).contiguous()
+                                                             dtype=torch.float32, device=self.device).contiguous()
         
         sun_psf_tmp_3D = torch.zeros(sun_patches.shape[0], src.nSubDirs*src.nSubDirs, 
                                      np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                     np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), dtype=torch.float32).contiguous()
+                                     np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                     dtype=torch.float32, device=self.device).contiguous()
 
         small_gain_corrector = torch.zeros(sun_patches.shape[0], src.nSubDirs*src.nSubDirs, 
-                                np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), dtype=torch.float32).contiguous()
+                                    np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                    np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                    dtype=torch.float32, device=self.device).contiguous()
 
         for i in range(sun_patches.shape[1]):
             dirX = i//src.nSubDirs
@@ -538,7 +542,7 @@ class CorrelatingShackHartmann:
         
         offset = sun_PSF_combined.shape[-1]//2 - self.npix_lenslet//2
 
-        merged_image = sun_PSF_combined[:,offset:offset+self.npix_lenslet, offset:offset+self.npix_lenslet].detach().numpy()
+        merged_image = sun_PSF_combined[:,offset:offset+self.npix_lenslet, offset:offset+self.npix_lenslet].cpu().numpy()
         
         return merged_image
   
@@ -753,24 +757,25 @@ class CorrelatingShackHartmann:
         # If the phase is not 3D, we need to repeat it for each subDir --> typically when the phase uses the DM only
         if np.ndim(phase_in) < 3:
             phase_in = np.repeat(phase_in[np.newaxis,:,:], src.nSubDirs**2, axis=0)
-
+        t0 = time.time()
         # compute the PSF intensity
         psf = self.get_psf(phase_in, fwhm, new_px)
-    
+        t1 = time.time()
         # Convolute with the sun patches - only valid subaps
 
         sun_patches = self.compute_images(psf, src.subDirs_sun, new_px)
-
+        t2 = time.time()
         # Merge the patches into a single image per subap
 
         I = self.merges_images(sun_patches, src)
-
+        t3 = time.time()
         # fill camera frame with computed intensity (only valid subapertures)
 
         ideal_frame = self.create_full_frame(I)
-
+        t4 = time.time()
         signal, signal_2D, noisy_frame = self.wfs_integrate(ideal_frame, I)                
-        
+        t5 = time.time()
+        self.logger.info(f'PSF: {t1-t0}, Compute images: {t2-t1}, Merge images: {t3-t2}, Create full frame: {t4-t3}, Integrate:{t5-t4}')
         return signal, signal_2D, noisy_frame
 
     def print_properties(self):
