@@ -424,9 +424,7 @@ class ShackHartmann:
         cube_em = torch.zeros((self.nSubap**2, nFFT, nFFT), dtype=torch.complex64).to(self.device)
         sub_mask = square_pupil_torch[row_start:row_end, col_start:col_end].float()
         # Exponential
-        real = torch.cos(phase_rescaled_valids)
-        imag = torch.sin(phase_rescaled_valids)
-        exp_block = sub_mask * (real + 1j * imag)
+        exp_block = sub_mask * torch.exp(1j*phase_rescaled_valids)
 
         cube_em[:, row_start:row_end, col_start:col_end] = exp_block
         # Apply light scaling
@@ -437,8 +435,6 @@ class ShackHartmann:
         t6 = time.time()
         # Shift zero frequency to center
         psf = torch.fft.fftshift(psf, dim=(-2, -1))
-        self.logger.warning(psf.device)
-        self.logger.warning(phase_rescaled_valids.device)
         t7 = time.time()
         # Compute normalized intensity
         psf = psf.real**2 + psf.imag **2
