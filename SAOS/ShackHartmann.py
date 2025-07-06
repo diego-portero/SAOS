@@ -290,23 +290,50 @@ class ShackHartmann:
         np.ndarray
             X and Y centroids per subaperture.
         """
-        im = np.atleast_3d(image.copy())
+        image = np.atleast_3d(image.copy())
 
-        threshold = np.partition(im.reshape(im.shape[0],-1), np.prod(im[0,:,:].shape) - use_brightest, axis=-1)[:, -use_brightest]
+        # Convert to torch Tensor:
+        image = torch.Tensor(image).to(self.device)
 
-        # Filtering those value below the threshold
-        im[im<threshold[:,None,None]] = 0
+        n_subap, H, W = image.shape
 
-        centroid_out         = np.zeros([im.shape[0],2])
-        X_map, Y_map= np.meshgrid(np.arange(im.shape[1]),np.arange(im.shape[2]))
-        X_coord_map = np.atleast_3d(X_map).T
-        Y_coord_map = np.atleast_3d(Y_map).T
+        # flatten each subap
+        flat = image.view(n_subap, -1)
 
-        norma                   = np.sum(np.sum(im,axis=1),axis=1)
+        # Obtener umbral para los brightest
+        topk_vals, _ = torch.topk(flat, use_brightest, dim=1)
+        thresholds = topk_vals[:, -1].unsqueeze(1)
 
-        centroid_out[:,0]    = np.sum(np.sum(im*X_coord_map,axis=1),axis=1)/norma
-        centroid_out[:,1]    = np.sum(np.sum(im*Y_coord_map,axis=1),axis=1)/norma
-        return centroid_out
+        # Máscara para pixels válidos
+        mask = flat >= thresholds
+
+        # Aplicar máscara
+        filtered = flat * mask
+
+        # Restaurar forma original
+        filtered = filtered.view(n_subap, H, W)
+
+        # Crear mapas de coordenadas
+        yy, xx = torch.meshgrid(
+            torch.arange(H, device=image.device, dtype=image.dtype),
+            torch.arange(W, device=image.device, dtype=image.dtype),
+            indexing='ij'
+        )
+
+        # Expandir para batch
+        xx = xx.unsqueeze(0)
+        yy = yy.unsqueeze(0)
+
+        # Calcular normalización (suma total)
+        norm = filtered.sum(dim=(1, 2))
+
+        # Calcular centroides
+        x_c = (filtered * xx).sum(dim=(1, 2)) / norm
+        y_c = (filtered * yy).sum(dim=(1, 2)) / norm
+
+        centroids = torch.stack((x_c, y_c), dim=1)
+
+        return centroids
 #%% DIFFRACTIVE
 
     def initialize_flux(self, src, norm_flux_map):
