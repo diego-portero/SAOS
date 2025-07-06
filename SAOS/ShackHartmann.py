@@ -424,7 +424,7 @@ class ShackHartmann:
         cube_em = torch.zeros((self.nSubap**2, nFFT, nFFT), dtype=torch.complex64).to(self.device)
         sub_mask = square_pupil_torch[row_start:row_end, col_start:col_end].float()
         # Exponential
-        exp_block = sub_mask * torch.exp(1j*phase_rescaled_valids)
+        exp_block = torch.polar(sub_mask, phase_rescaled_valids)
 
         cube_em[:, row_start:row_end, col_start:col_end] = exp_block
         # Apply light scaling
