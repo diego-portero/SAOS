@@ -104,6 +104,8 @@ class ShackHartmann:
         self.threshold_convolution          = threshold_convolution
         self.use_brightest                  = use_brightest
         self.unit_in_rad                    = unit_in_rad
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
        
         # Subapeture definition
         self.subaperture_size           = telescope.D / self.nSubap
@@ -375,8 +377,8 @@ class ShackHartmann:
 
         t0 = time.time()
         # Rescale the phase
-        input_phase_torch = torch.from_numpy(phase).contiguous()
-        square_pupil_torch = torch.from_numpy(square_pupil).contiguous()
+        input_phase_torch = torch.from_numpy(phase).contiguous().detach().to(self.device)
+        square_pupil_torch = torch.from_numpy(square_pupil).contiguous().detach().to(self.device)
 
         phase_rescaled = torch.nn.functional.interpolate(input_phase_torch.unsqueeze(0).unsqueeze(0), 
                                                             size=(self.nSubap*self.npix_phase, self.nSubap*self.npix_phase), 
@@ -419,7 +421,7 @@ class ShackHartmann:
         row_start, row_end = rows[0].item(), rows[-1].item() + 1
         col_start, col_end = cols[0].item(), cols[-1].item() + 1
         # Allocate full tensor
-        cube_em = torch.zeros((self.nSubap**2, nFFT, nFFT), dtype=torch.complex64)
+        cube_em = torch.zeros((self.nSubap**2, nFFT, nFFT), dtype=torch.complex64).to(self.device)
         sub_mask = square_pupil_torch[row_start:row_end, col_start:col_end].float()
         # Exponential
         real = torch.cos(phase_rescaled_valids)
@@ -432,19 +434,20 @@ class ShackHartmann:
         t4 = time.time()
         # Get the PSF
         psf = torch.fft.fft2(cube_em, dim=(-2, -1), norm='forward')  # same as dividing by nFFT²
-
+        t6 = time.time()
         # Shift zero frequency to center
         psf = torch.fft.fftshift(psf, dim=(-2, -1))
-
+        t7 = time.time()
         # Compute normalized intensity
         psf = torch.abs(psf) ** 2
         # Crop to desired region
-        psf = psf[:, start:end, start:end].numpy()
+        psf = psf[:, start:end, start:end].cpu().numpy()
         t5 = time.time()
         
-        self.logger.debug(f'ShackHartmann::get_psf - Time taken for each step: '
+        self.logger.info(f'ShackHartmann::get_psf - Time taken for each step: '
                          f'Rescale input phase: {t1-t0} [s], Reshape into subaps: {t2-t1} [s], Interpolate to npix_lenslet: {t3-t2} [s], '
                          f'Compute exponential: {t4-t3} [s], PSF: {t5-t4} [s], Total processing time: {t5-t0}')
+        self.logger.info(f'FFT: {t6-t4}, Shift: {t7-t6}, Abs: {t5-t7}')
         return psf
   
     def create_full_frame(self, subaps):
@@ -767,8 +770,9 @@ class ShackHartmann:
         # compute fwhm
         fwhm = src.wavelength * 206265 / (self.subaperture_size * self.plate_scale)
         # compute the PSF intensity
+        t0 = time.time()
         I = self.get_psf(phase_in, fwhm)
-
+        t1 = time.time()
         # reduce to valid subaperture
         I = I[self.valid_subapertures_1D,:,:]    
                 
@@ -779,9 +783,13 @@ class ShackHartmann:
         # fill camera frame with computed intensity (only valid subapertures)
 
         ideal_frame = self.create_full_frame(I)
-
+        t2 = time.time()
         signal, signal_2D, noisy_frame = self.wfs_integrate(ideal_frame, I)                
-        
+        t3 = time.time()
+        self.logger.info(f'Get PSF: {(t1-t0)*1000}')
+        self.logger.info(f'Create full frame: {(t2-t1)*1000}')
+        self.logger.info(f'Integrate: {(t3-t2)*1000}')
+        self.logger.info(f'Total: {(t3-t0)*1000}')
         return signal, signal_2D, noisy_frame
 
     def print_properties(self):
