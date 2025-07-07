@@ -187,7 +187,7 @@ class ScienceCam:
 
             frame = self.cam.integrate(frame)
             t6 = time.time()
-            self.logger.info(f'to 3D; {t1-t0}, interpolate: {t2-t1}, compute psf: {t3-t2}, compute image: {t4-t3}, combine: {t5-t4}, integrate: {t6-t5}, total: {t6-t0}')
+            self.logger.debug(f'to 3D; {t1-t0}, interpolate: {t2-t1}, compute psf: {t3-t2}, compute image: {t4-t3}, combine: {t5-t4}, integrate: {t6-t5}, total: {t6-t0}')
         else:
             raise ValueError(f'ScienceCam::get_frame - The source tag ({src.tag}) is not supported.')
         
@@ -276,7 +276,7 @@ class ScienceCam:
 
         return image
 
-    def setup_logging(self, logging_level=logging.WARNING):
+    def setup_logging(self, logging_level=logging.INFO):
         #  Setup of logging at the main process using QueueHandler
         log_queue = Queue()
         queue_handler = logging.handlers.QueueHandler(log_queue)
