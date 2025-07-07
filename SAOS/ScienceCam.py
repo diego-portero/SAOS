@@ -227,8 +227,6 @@ class ScienceCam:
         # Define pupil
         start = (nFFT - nPix) // 2
         end = start + nPix
-        square_pupil = np.zeros((nFFT, nFFT), dtype=float)
-        square_pupil[start:end, start:end] = pupil_rescaled
 
         # Phase torch
         exp_phase = torch.zeros((nFFT, nFFT), dtype=torch.complex64, device=self.device).contiguous()
