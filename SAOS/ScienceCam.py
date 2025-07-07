@@ -65,6 +65,8 @@ class ScienceCam:
         self.samplingTime     = samplingTime
         self.decimation       = decimation
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         if integrationTime is None:
             self.integrationTime = self.samplingTime
         else:
@@ -135,7 +137,7 @@ class ScienceCam:
                                                            for i in range(len(list_phase))) 
             
             # Resize the 2D filter
-            filter_2D_torch = torch.from_numpy(src.filter_2D).contiguous()
+            filter_2D_torch = torch.from_numpy(src.filter_2D).contiguous().to(self.device)
             filter_2D_torch = filter_2D_torch.view(filter_2D_torch.shape[0], filter_2D_torch.shape[1], -1).permute(2, 0, 1)
             new_size = np.round(src.subDirs_coordinates[2,0,0]/self.plate_scale).astype(int)
             filter_2D_torch = torch.nn.functional.interpolate(filter_2D_torch.unsqueeze(0), size=(new_size, new_size), 
@@ -143,15 +145,17 @@ class ScienceCam:
             # Combine the sun patches into a unique PSF
 
             sun_PSF_combined = torch.zeros(np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                           np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), dtype=torch.float32).contiguous()
+                                           np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                           dtype=torch.float32, device=self.device).contiguous()
             
             sun_psf_tmp_3D = torch.zeros((np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                          np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), src.nSubDirs*src.nSubDirs), dtype=torch.float32).contiguous()
+                                          np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), src.nSubDirs*src.nSubDirs), 
+                                          dtype=torch.float32, device=self.device).contiguous()
 
             # The small gain corrector is used to normalize the filter after it was interpolated so that differences below 1-2% can be compensated
             small_gain_corrector = torch.zeros((np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                                 np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                                src.nSubDirs*src.nSubDirs), dtype=torch.float32).contiguous()
+                                                src.nSubDirs*src.nSubDirs), dtype=torch.float32, device=self.device).contiguous()
             
             for i in range(len(sun_patches)):
                 dirX = i//src.nSubDirs
@@ -175,7 +179,7 @@ class ScienceCam:
             
             offset = sun_PSF_combined[0].shape[0]//2 - self.nPix//2
 
-            frame = sun_PSF_combined[offset:offset+self.nPix, offset:offset+self.nPix].detach().numpy()
+            frame = sun_PSF_combined[offset:offset+self.nPix, offset:offset+self.nPix].cpu().numpy()
             
             # Add detector noise
 
@@ -212,8 +216,8 @@ class ScienceCam:
         nFFT = np.round(fwhm * nPix).astype(int)
 
         # Rescaled phase and pupil
-        phase_torch = torch.from_numpy(phase).contiguous()
-        pupil_torch = torch.from_numpy(self.pupil).contiguous()
+        phase_torch = torch.from_numpy(phase).contiguous().to(self.device)
+        pupil_torch = torch.from_numpy(self.pupil).contiguous().to(self.device)
 
         phase_rescaled = torch.nn.functional.interpolate(phase_torch.unsqueeze(0).unsqueeze(0), size=(nPix, nPix), 
                                                          mode='bilinear', align_corners=True).squeeze().contiguous()
@@ -227,12 +231,9 @@ class ScienceCam:
         square_pupil[start:end, start:end] = pupil_rescaled
 
         # Phase torch
-        exp_phase = torch.zeros((nFFT, nFFT), dtype=torch.complex64).contiguous()
+        exp_phase = torch.zeros((nFFT, nFFT), dtype=torch.complex64, device=self.device).contiguous()
 
-        real = torch.cos(phase_rescaled)
-        imag = torch.sin(phase_rescaled)
-        
-        exp_phase[start:end, start:end] = pupil_rescaled * (real + 1j * imag)
+        exp_phase[start:end, start:end] = torch.polar(pupil_rescaled, phase_rescaled)
 
         # Compute PSF
         psf = torch.fft.fft2(exp_phase, dim=(0, 1), norm='forward').contiguous()  # same as dividing by nFFT²
@@ -241,7 +242,7 @@ class ScienceCam:
         psf = torch.fft.fftshift(psf, dim=(0, 1))
 
         # Compute normalized intensity
-        psf = torch.abs(psf) ** 2
+        psf = psf.real**2 + psf.imag**2
 
         return psf[start:end, start:end].contiguous()  # Crop the PSF to the original size
     
@@ -261,7 +262,7 @@ class ScienceCam:
         torch.Tensor
             Final image after convolution.
         """        
-        object_torch = sci_object.contiguous()
+        object_torch = sci_object.contiguous().to(self.device)
 
         # Compute FFT2
 
@@ -269,8 +270,8 @@ class ScienceCam:
         coherence_fft = torch.fft.fft2(coherence, norm='forward', dim=(0,1))
 
         # Convolute
-
-        image = torch.abs(torch.fft.fftshift(torch.fft.ifft2(object_fft*coherence_fft, norm='forward', dim=(0,1)), dim=(0,1)))
+        image_complex = torch.fft.fftshift(torch.fft.ifft2(object_fft*coherence_fft, norm='forward', dim=(0,1)), dim=(0,1))
+        image = image_complex.real**2 + image_complex.imag**2
 
         return image
 
