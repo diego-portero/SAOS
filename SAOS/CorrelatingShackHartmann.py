@@ -489,7 +489,7 @@ class CorrelatingShackHartmann:
         psf[self.valid_subapertures_1D, :, :, :] = fft_res[:, :, row_start:row_end, col_start:col_end]
         t5 = time.time()
         
-        self.logger.info(f'CorrelatingShackHartmann::get_psf - Time taken for each step: '
+        self.logger.debug(f'CorrelatingShackHartmann::get_psf - Time taken for each step: '
                          f'Rescale input phase: {t1-t0} [s], Reshape into subaps: {t2-t1} [s], Interpolate to npix_sun: {t3-t2} [s], '
                          f'Compute exponential: {t4-t3} [s], PSF: {t5-t4} [s], Total processing time: {t5-t0}')
         return psf
@@ -799,7 +799,7 @@ class CorrelatingShackHartmann:
         t4 = time.time()
         signal, signal_2D, noisy_frame = self.wfs_integrate(ideal_frame, I)                
         t5 = time.time()
-        self.logger.info(f'PSF: {t1-t0}, Compute images: {t2-t1}, Merge images: {t3-t2}, Create full frame: {t4-t3}, Integrate:{t5-t4}')
+        self.logger.debug(f'PSF: {t1-t0}, Compute images: {t2-t1}, Merge images: {t3-t2}, Create full frame: {t4-t3}, Integrate:{t5-t4}')
         return signal, signal_2D, noisy_frame
 
     def print_properties(self):
