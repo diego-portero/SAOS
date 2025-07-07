@@ -380,20 +380,21 @@ class Atmosphere:
         # Then, we get the footprint for each element of the list -> we do this in parallel.
         # result_footprint contains a list of nSources, each element containing a tuple of two list of size nLayers. The first list contains the footprint per layer, 
         # and the second list the offset of the centroid due to discretization
+        n_jobs = np.minimum(np.round(os.cpu_count()*0.7).astype(int), len(list_src))
         t0 = time.time()
-        result_footprint = Parallel(n_jobs=len(list_src), prefer="threads")(delayed(self.get_pupil_footprint)(list_src[i]) for i in range(len(list_src)))
+        result_footprint = Parallel(n_jobs=n_jobs, prefer="threads")(delayed(self.get_pupil_footprint)(list_src[i]) for i in range(len(list_src)))
         t1 = time.time()
         # Once the pupil is defined, we should use it to get the phase
         # result_phase contains a list of nSources, each element containing a list of size nLayers, whose elements contain the phase per layer [in rad]
-        result_phase = Parallel(n_jobs=len(list_src), prefer="threads")(delayed(self.project_phase)(
+        result_phase = Parallel(n_jobs=n_jobs, prefer="threads")(delayed(self.project_phase)(
                                 list_src[i], result_footprint[i][0], result_footprint[i][1]) for i in range(len(list_src)))
         t2 = time.time()
         # Finally, the phases are merged to get the resulting OPD per line of sight
         # result_opd_no_pupil contains one list of size nSources containing the OPD without pupil per source. 
         # The OPD is in [meters]
-        result_opd_no_pupil = Parallel(n_jobs=len(list_src), prefer="threads")(delayed(self.get_opd_per_src)(list_src[i], result_phase[i]) for i in range(len(list_src)))
+        result_opd_no_pupil = Parallel(n_jobs=n_jobs, prefer="threads")(delayed(self.get_opd_per_src)(list_src[i], result_phase[i]) for i in range(len(list_src)))
         t3 = time.time()
-        self.logger.info(f'Footprint: {t1-t0}, project_phase: {t2-t1}, get_opd_per_src: {t3-t2}')
+        self.logger.debug(f'Footprint: {t1-t0}, project_phase: {t2-t1}, get_opd_per_src: {t3-t2}')
         return np.squeeze(result_opd_no_pupil)
            
     def get_pupil_footprint(self, src):
