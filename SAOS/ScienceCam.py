@@ -8,6 +8,8 @@ import logging
 import logging.handlers
 from queue import Queue
 
+import time
+
 import numpy as np
 import torch
 
@@ -114,28 +116,28 @@ class ScienceCam:
         elif src.tag == 'sun':
             if src.fov < self.fieldOfView:
                 raise ValueError('ScienceCam::get_frame - The source FoV is smaller than the camera FoV.')
-            
+            t0 = time.time()
             # If the phase is not 3D, we need to repeat it for each subDir --> typically when the phase uses the DM only
             if np.ndim(phase) < 3:
                 phase = np.repeat(phase[np.newaxis,:,:], src.nSubDirs**2, axis=0)
             
             list_phase = [phase[i, :, :] for i in range(phase.shape[0])]
-            
+            t1 = time.time()
             # Interpolate sun subDirs to the adequate size given the camera PS
             subDirs_torch = torch.from_numpy(src.subDirs_sun).contiguous()
             subDirs_torch = subDirs_torch.view(subDirs_torch.shape[0], subDirs_torch.shape[1], -1).permute(2, 0, 1)
             new_size = np.round((src.subDirs_coordinates[2,0,0]+src.subDir_margin)/self.plate_scale).astype(int)
             subDirs_torch = torch.nn.functional.interpolate(subDirs_torch.unsqueeze(0), size=(new_size, new_size), 
                                                             mode='bilinear', align_corners=True).squeeze(0).contiguous()  
-                      
+            t2 = time.time()          
             # Compute in parallel the PSF for each subdir --> shape matches that of the source, using the camera plate scale
             psf = Parallel(n_jobs=1, prefer='threads')(delayed(self.compute_psf)(list_phase[i], fwhm, subDirs_torch.shape[2]) for i in range(len(list_phase)))
-            
+            t3 = time.time()
             # Convolute in parallel the PSF of each subDir with the sun patch of that subdir
             # This is faster than compute the FFT2 over 3D tensors and avoid looping, at least on CPU
             sun_patches = Parallel(n_jobs=1, prefer='threads')(delayed(self.compute_image)(subDirs_torch[i,:,:], psf[i]) 
                                                            for i in range(len(list_phase))) 
-            
+            t4 = time.time()
             # Resize the 2D filter
             filter_2D_torch = torch.from_numpy(src.filter_2D).contiguous().to(self.device)
             filter_2D_torch = filter_2D_torch.view(filter_2D_torch.shape[0], filter_2D_torch.shape[1], -1).permute(2, 0, 1)
@@ -180,11 +182,12 @@ class ScienceCam:
             offset = sun_PSF_combined[0].shape[0]//2 - self.nPix//2
 
             frame = sun_PSF_combined[offset:offset+self.nPix, offset:offset+self.nPix].cpu().numpy()
-            
+            t5 = time.time()
             # Add detector noise
 
             frame = self.cam.integrate(frame)
-
+            t6 = time.time()
+            self.logger.info(f'to 3D; {t1-t0}, interpolate: {t2-t1}, compute psf: {t3-t2}, compute image: {t4-t3}, combine: {t5-t4}, integrate: {t6-t5}, total: {t6-t0}')
         else:
             raise ValueError(f'ScienceCam::get_frame - The source tag ({src.tag}) is not supported.')
         
