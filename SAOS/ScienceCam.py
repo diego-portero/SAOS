@@ -109,7 +109,7 @@ class ScienceCam:
         if src.tag == 'source':
             psf = self.compute_psf(phase, fwhm)
             
-            frame = self.cam.integrate(psf.detach().numpy()) # The coherence is the PSF because the object is a point-source
+            frame = self.cam.integrate(psf.cpu().numpy()) # The coherence is the PSF because the object is a point-source
         
         elif src.tag == 'sun':
             if src.fov < self.fieldOfView:
