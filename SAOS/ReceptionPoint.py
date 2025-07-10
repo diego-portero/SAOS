@@ -11,7 +11,7 @@ import logging.handlers
 from queue import Queue
 
 """
-Sharepoint Module
+ReceptionPoint Module
 =================
 
 This module contains the `ReceptionPoint` class, used to ask for specific buffer to an external server
@@ -78,7 +78,6 @@ class ReceptionPoint:
         if buffer_type == 'actuator_cmd':
             while True:
                 try:
-                    self.logger.info('preparing send')
                     self.socket.send(pickle.dumps(buffer_type))
                     self.logger.info('ReceptionPoint::sendRequest - request sent. Waiting for answer')
 					
