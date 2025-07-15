@@ -411,6 +411,16 @@ class DeformableMirror:
             if (val.shape[0] == self.nAct) and (val.shape[1] == self.nAct):
                 # The command received is a 2D matrix, take only the valid actuators!
                 val = val.flatten()[self.validAct]
+            elif (val.shape[0] == self.validAct.shape[0]):
+                # Command received is 1D, without filtering the unused actuators
+                val = val[self.validAct]
+            elif (val.shape[0] == self.nValidAct):
+                # Command received is 1D, only valid actuators
+                val = val
+            else:
+                self.logger.error(f'DeformableMirror::updateDMShape - Shape of the command is not support: {val.shape}, \
+                                  expected {self._coefs.shape}')
+                return False
         
         if self.floating_precision==32:            
             self._coefs = np.float32(val)
