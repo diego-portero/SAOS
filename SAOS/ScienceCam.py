@@ -237,13 +237,21 @@ class ScienceCam:
         exp_phase[start:end, start:end] = torch.polar(pupil_rescaled, phase_rescaled)
 
         # Compute PSF
-        psf = torch.fft.fft2(exp_phase, dim=(0, 1), norm='forward').contiguous()  # same as dividing by nFFT²
+        psf = torch.fft.fft2(exp_phase, dim=(0, 1), norm='backward').contiguous()  # same as dividing by nFFT²
 
         # Shift zero frequency to center
         psf = torch.fft.fftshift(psf, dim=(0, 1))
 
         # Compute normalized intensity
         psf = psf.real**2 + psf.imag**2
+
+        # Normalize energy
+        norma = torch.sum(psf)
+        
+        if norma > 0:
+            psf /= norma
+        else:
+            self.logger.warning('ScienceCam::compute_psf - Could not normalize PSF.')
 
         return psf[start:end, start:end].contiguous()  # Crop the PSF to the original size
     
@@ -267,12 +275,22 @@ class ScienceCam:
 
         # Compute FFT2
 
-        object_fft    = torch.fft.fft2(object_torch, norm='forward', dim=(0,1))
-        coherence_fft = torch.fft.fft2(coherence, norm='forward', dim=(0,1))
+        object_fft    = torch.fft.fft2(object_torch, norm='backward', dim=(0,1))
+        coherence_fft = torch.fft.fft2(coherence, norm='backward', dim=(0,1))
 
         # Convolute
         image_complex = torch.fft.fftshift(torch.fft.ifft2(object_fft*coherence_fft, norm='forward', dim=(0,1)), dim=(0,1))
         image = image_complex.real**2 + image_complex.imag**2
+
+        # Normalize energy
+
+        norma = torch.sum(image)/torch.sum(sci_object)
+
+        if norma > 0:
+            image /= norma
+        else:
+            self.logger.warning('ScienceCam::compute_image - Could not normalize patch image generation')
+
 
         return image
 
