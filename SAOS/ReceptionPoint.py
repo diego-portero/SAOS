@@ -22,7 +22,7 @@ class ReceptionPoint:
                  port=7000, 
                  ip="161.72.210.177", 
                  protocol="tcp", 
-                 timeout=15000):
+                 timeout=5000):
         """
         Initialize the Sharepoint publisher for sharing light path data.
 
@@ -56,8 +56,8 @@ class ReceptionPoint:
         self.socket = self.context.socket(zmq.REQ)
 
         self.socket.connect(self.protocol + '://' + self.ip + ':' + str(self.port))
-
-        self.socket.setsockopt(zmq.RCVTIMEO, self.timeout)
+        self.poller = zmq.Poller()
+        self.poller.register(self.socket, zmq.POLLIN)
 	
     def sendRequest(self, buffer_type=''):
         """
@@ -77,22 +77,30 @@ class ReceptionPoint:
 		
         if buffer_type == 'actuator_cmd':
             while True:
-                try:
-                    self.socket.send(pickle.dumps(buffer_type))
-                    self.logger.info('ReceptionPoint::sendRequest - request sent. Waiting for answer')
-					
+                self.socket.send(pickle.dumps(buffer_type))
+                self.logger.info('ReceptionPoint::sendRequest - request sent. Waiting for answer')
+
+                if self.poller.poll(timeout=self.timeout):
                     data = self.socket.recv()
-                    response = pickle.loads(data) 
+                    response = pickle.loads(data)
                     self.logger.info('ReceptionPoint::sendRequest - answer received.')
                     result = response
                     break
-                except zmq.Again as e:  # Time out
+                else:
                     result = None
+                    
+                    # Reset socket
+                    try:
+                        self.socket.setsockopt(zmq.LINGER,0)
+                        self.socket.close()
+                    except Exception:
+                        pass
+					
+                    self.socket = self.context.socket(zmq.REQ)
+                    self.socket.connect(self.protocol + '://' + self.ip + ':' + str(self.port))
+                    
+                    self.poller.register(self.socket, zmq.POLLIN)
                     self.logger.error('ReceptionPoint::sendRequest - Timeout.')
-                    break
-                except Exception as e:
-                    result = None
-                    self.logger.error('ReceptionPoint::sendRequest - Error sending or receiving data.')
                     break
         else:
             result = None
