@@ -430,7 +430,7 @@ class DeformableMirror:
         if len(val)==self.nValidAct:
 
             temp = np.zeros_like(self.validAct_2D).astype(float)
-            temp[self.validAct_2D] = self._coefs
+            temp[self.validAct_2D] = np.squeeze(self._coefs)
 
             self.dm_layer.cmd_2D = temp.copy()
 
