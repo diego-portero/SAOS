@@ -131,6 +131,17 @@ class DeformableMirror:
         self.dm_layer.cmd_2D                    = np.zeros([self.nAct,self.nAct]) # stores the 2D DM command      
         
         # set the coordinates of the DM object to produce a cartesian geometry
+        self.validAct_2D = np.zeros((self.nAct,self.nAct), dtype=bool) # stores the valid actuators in a 2D matrix
+
+        cx, cy = (self.nAct - 1) / 2, (self.nAct - 1) / 2
+        radius_nActs = self.nAct / 2
+        y, x = np.ogrid[:self.nAct, :self.nAct]
+        mask = (x - cx)**2 + (y - cy)**2 <= radius_nActs**2
+
+        self.validAct_2D[mask] = True    
+
+        self.validAct = self.validAct_2D.flatten()    
+
         x = np.linspace(-(self.dm_layer.D_fov)/2,(self.dm_layer.D_fov)/2,self.nAct)
         X,Y=np.meshgrid(x,x)            
         
@@ -138,18 +149,18 @@ class DeformableMirror:
         self.xIF0 = np.reshape(X,[self.nAct**2])
         self.yIF0 = np.reshape(Y,[self.nAct**2])
         
-        # select valid actuators --> removing the central and outer obstruction
-        r = np.sqrt(self.xIF0**2 + self.yIF0**2)
+        # # select valid actuators --> removing the central and outer obstruction
+        # r = np.sqrt(self.xIF0**2 + self.yIF0**2)
 
         # Compute the pitch of the cartesian arrange
         self.pitch = self.dm_layer.D_fov/(self.nAct-1) # in [m]
+       
+        # if valid_act_thresh_outer is None: 
+        #     valid_act_thresh_outer = self.dm_layer.D_fov/2+0.50*self.pitch
         
-        if valid_act_thresh_outer is None: 
-            valid_act_thresh_outer = self.dm_layer.D_fov/2+0.7533*self.pitch
-        
-        self.validAct = r <= valid_act_thresh_outer
+        # self.validAct = r <= valid_act_thresh_outer
 
-        self.validAct_2D = self.validAct.reshape(self.nAct,self.nAct)
+        # self.validAct_2D = self.validAct.reshape(self.nAct,self.nAct)
         
         self.nValidAct   = sum(self.validAct) 
 
@@ -398,20 +409,27 @@ class DeformableMirror:
             dm_surface_slave = np.zeros(self.mask_slave_2D.shape)
             dm_surface_slave[self.slaveActuators:-self.slaveActuators, self.slaveActuators:-self.slaveActuators] = dm_surface * self.external_active_act_mask
 
-            # Enlarge the ring to fill the slave actuators
+            # Remove negative values
 
-            max_layer = sp.ndimage.maximum_filter(dm_surface_slave, size=2*self.slaveActuators+1)
-            min_layer = sp.ndimage.minimum_filter(dm_surface_slave, size=2*self.slaveActuators+1)
+            min_val = np.min(dm_surface_slave)
+            dm_surface_slave += np.abs(min_val)
 
-            dm_surface_slave = np.where(np.abs(max_layer) > np.abs(min_layer), max_layer, min_layer)
+            # Filter the background
+            square_filter = np.zeros_like(dm_surface_slave, dtype=bool)
+            square_filter[self.slaveActuators:-self.slaveActuators, self.slaveActuators:-self.slaveActuators] = True
 
-            # Select only the ring of passive actuators
-            dm_surface_slave = dm_surface_slave * self.slave_ring_mask # Only ring of passive acts
-            # Fill the active actuators with their value
+            dm_surface_slave *= square_filter
+            dm_surface_slave[self.slaveActuators:-self.slaveActuators, self.slaveActuators:-self.slaveActuators] *= self.external_active_act_mask
+
+            # Dilate the ring of external active actuators
+            dm_surface_slave = cv2.dilate(dm_surface_slave, np.ones((2*self.slaveActuators+1,2*self.slaveActuators+1)), iterations=1)
+
+            # Apply the filter of slave actuators
+            dm_surface_slave *= self.slave_ring_mask
             dm_surface_slave[self.mask_slave_2D] = dm_surface[self.validAct_2D] # Fill active actuators
 
             # Compute high resolution shape
-            nPoints_slave_hr = int((self.dm_layer.D_px / self.nAct) * (self.nAct + 2 * self.slaveActuators))
+            nPoints_slave_hr = np.ceil((self.dm_layer.D_px / self.nAct) * (self.nAct + 2 * self.slaveActuators)).astype(int)
             temp_highres_slave = cv2.resize(dm_surface_slave, (nPoints_slave_hr, nPoints_slave_hr), interpolation=self.switcherInterp[self.influenceInterpolation])
 
             # Take pixels from the active actuators region
