@@ -325,7 +325,8 @@ class CorrelatingShackHartmann:
         mask = flat >= thresholds
 
         # Aplicar máscara
-        filtered = flat * mask
+        filtered = flat - thresholds
+        filtered[~mask] = 0
 
         # Restaurar forma original
         filtered = filtered.view(n_subap, H, W)
@@ -478,13 +479,19 @@ class CorrelatingShackHartmann:
         # Get the PSF
         psf = torch.zeros((self.nSubap**2, input_phase_torch.shape[0], npix_sun, npix_sun), dtype=torch.float32, device=self.device)
 
-        fft_res = torch.fft.fft2(cube_em[self.valid_subapertures_1D, :, :, :], dim=(-2, -1), norm='forward')  # same as dividing by nFFT²
+        fft_res = torch.fft.fft2(cube_em[self.valid_subapertures_1D, :, :, :], dim=(-2, -1), norm='backward').contiguous()  # same as dividing by nFFT²
 
         # Shift zero frequency to center
         fft_res = torch.fft.fftshift(fft_res, dim=(-2, -1))
 
         # Compute normalized intensity
         fft_res = fft_res.real**2 + fft_res.imag **2
+
+        # Normalize energy
+        norma = torch.sum(fft_res[:, :, row_start:row_end, col_start:col_end], dim=(-2, -1), keepdim=True)
+
+        fft_res = fft_res / norma
+           
         # Crop to desired region
         psf[self.valid_subapertures_1D, :, :, :] = fft_res[:, :, row_start:row_end, col_start:col_end]
         t5 = time.time()
@@ -505,16 +512,25 @@ class CorrelatingShackHartmann:
         
         # Compute FFT of the sun subdirs
 
-        sun_fft = torch.fft.fft2(sun_torch, norm='forward', dim=(-2, -1))
+        sun_fft = torch.fft.fft2(sun_torch, norm='backward', dim=(-2, -1))
 
         # Compute FFT of the PSF
 
-        psf_fft = torch.fft.fft2(psf[self.valid_subapertures_1D, :, :, :], norm='forward', dim=(-2, -1))
+        psf_fft = torch.fft.fft2(psf[self.valid_subapertures_1D, :, :, :], norm='backward', dim=(-2, -1))
 
         # Convolute
         sun_patches_complex = torch.fft.fftshift(torch.fft.ifft2(sun_fft*psf_fft, norm='forward', dim=(-2, -1)), dim=(-2, -1))
 
         sun_patches = sun_patches_complex.real**2 + sun_patches_complex.imag**2
+
+        # Normalize energy
+        sun_energy = subDirs_sun.sum(axis=(0,1))
+        sun_energy = sun_energy.reshape(1,sun_patches.shape[1],1,1)
+
+        curr_energy = torch.sum(sun_patches, dim=(-2, -1), keepdim=True)
+        curr_energy = torch.sum(curr_energy, axis=0, keepdim=True)
+
+        sun_patches = sun_patches * (sun_energy / curr_energy)
  
         return sun_patches
     
