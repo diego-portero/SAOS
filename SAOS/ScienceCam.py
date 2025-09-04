@@ -146,17 +146,17 @@ class ScienceCam:
                                                             mode='bilinear', align_corners=True).squeeze(0).contiguous()
             # Combine the sun patches into a unique PSF
 
-            sun_PSF_combined = torch.zeros(np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                           np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+            sun_PSF_combined = torch.zeros(np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                           np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                            dtype=torch.float32, device=self.device).contiguous()
             
-            sun_psf_tmp_3D = torch.zeros((np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                          np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), src.nSubDirs*src.nSubDirs), 
+            sun_psf_tmp_3D = torch.zeros((np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                          np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), src.nSubDirs*src.nSubDirs), 
                                           dtype=torch.float32, device=self.device).contiguous()
 
             # The small gain corrector is used to normalize the filter after it was interpolated so that differences below 1-2% can be compensated
-            small_gain_corrector = torch.zeros((np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                                np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+            small_gain_corrector = torch.zeros((np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                                np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                                 src.nSubDirs*src.nSubDirs), dtype=torch.float32, device=self.device).contiguous()
             
             for i in range(len(sun_patches)):
@@ -166,8 +166,8 @@ class ScienceCam:
                 gcorner_x = dirX*np.round((src.subDirs_coordinates[2,0,0])/(2*self.plate_scale)).astype(int)
                 gcorner_y = dirY*np.round((src.subDirs_coordinates[2,0,0])/(2*self.plate_scale)).astype(int)
 
-                gcorner_x_end = gcorner_x + np.round((src.subDirs_coordinates[2,0,0])/(self.plate_scale)).astype(int)
-                gcorner_y_end = gcorner_y + np.round((src.subDirs_coordinates[2,0,0])/(self.plate_scale)).astype(int)
+                gcorner_x_end = gcorner_x + filter_2D_torch[i,:,:].shape[-2]
+                gcorner_y_end = gcorner_y + filter_2D_torch[i,:,:].shape[-1]
 
                 start = sun_patches[i].shape[0]//2 - filter_2D_torch.shape[1]//2
                 

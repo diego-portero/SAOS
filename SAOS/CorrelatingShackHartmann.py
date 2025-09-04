@@ -544,18 +544,18 @@ class CorrelatingShackHartmann:
 
         # Combine the sun patches into a unique PSF
 
-        sun_PSF_combined = torch.zeros(sun_patches.shape[0], np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                                             np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+        sun_PSF_combined = torch.zeros(sun_patches.shape[0], np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                                             np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                                              dtype=torch.float32, device=self.device).contiguous()
         
         sun_psf_tmp_3D = torch.zeros(sun_patches.shape[0], src.nSubDirs*src.nSubDirs, 
-                                     np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                     np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                     np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                     np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                      dtype=torch.float32, device=self.device).contiguous()
 
         small_gain_corrector = torch.zeros(sun_patches.shape[0], src.nSubDirs*src.nSubDirs, 
-                                    np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                    np.round((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                    np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
+                                    np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                     dtype=torch.float32, device=self.device).contiguous()
 
         for i in range(sun_patches.shape[1]):
@@ -565,8 +565,8 @@ class CorrelatingShackHartmann:
             gcorner_x = dirX*np.round((src.subDirs_coordinates[2,0,0])/(2*self.plate_scale)).astype(int)
             gcorner_y = dirY*np.round((src.subDirs_coordinates[2,0,0])/(2*self.plate_scale)).astype(int)
 
-            gcorner_x_end = gcorner_x + np.round((src.subDirs_coordinates[2,0,0])/(self.plate_scale)).astype(int)
-            gcorner_y_end = gcorner_y + np.round((src.subDirs_coordinates[2,0,0])/(self.plate_scale)).astype(int)
+            gcorner_x_end = gcorner_x + filter_2D_torch[i,:,:].shape[-2]
+            gcorner_y_end = gcorner_y + filter_2D_torch[i,:,:].shape[-1]
 
             start = sun_patches.shape[-1]//2 - filter_2D_torch.shape[1]//2
             
