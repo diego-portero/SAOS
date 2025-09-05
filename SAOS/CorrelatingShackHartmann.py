@@ -291,7 +291,7 @@ class CorrelatingShackHartmann:
         # Compute cross-correlation
 
         cross_correlation_complex = torch.fft.fftshift(torch.fft.ifft2(subaps_fft * pseudoref_fft.conj(), norm='forward', dim=(-2, -1)), dim=(-2,-1))
-        cross_correlation = cross_correlation_complex.real**2 + cross_correlation_complex.imag**2
+        cross_correlation = torch.sqrt(cross_correlation_complex.real**2 + cross_correlation_complex.imag**2)
 
         return cross_correlation
 
@@ -485,7 +485,7 @@ class CorrelatingShackHartmann:
         fft_res = torch.fft.fftshift(fft_res, dim=(-2, -1))
 
         # Compute normalized intensity
-        fft_res = fft_res.real**2 + fft_res.imag **2
+        fft_res = torch.sqrt(fft_res.real**2 + fft_res.imag **2)
 
         # Normalize energy
         norma = torch.sum(fft_res[:, :, row_start:row_end, col_start:col_end], dim=(-2, -1), keepdim=True)

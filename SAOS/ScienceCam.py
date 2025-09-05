@@ -243,7 +243,7 @@ class ScienceCam:
         psf = torch.fft.fftshift(psf, dim=(0, 1))
 
         # Compute normalized intensity
-        psf = psf.real**2 + psf.imag**2
+        psf = torch.sqrt(psf.real**2 + psf.imag**2)
 
         # Normalize energy
         norma = torch.sum(psf)
@@ -280,7 +280,7 @@ class ScienceCam:
 
         # Convolute
         image_complex = torch.fft.fftshift(torch.fft.ifft2(object_fft*coherence_fft, norm='forward', dim=(0,1)), dim=(0,1))
-        image = image_complex.real**2 + image_complex.imag**2
+        image = torch.sqrt(image_complex.real**2 + image_complex.imag**2)
 
         # Normalize energy
 
