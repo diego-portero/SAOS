@@ -508,7 +508,7 @@ class CorrelatingShackHartmann:
         sun_torch = sun_torch.view(sun_torch.shape[0], sun_torch.shape[1], -1).permute(2, 0, 1)
 
         # Dowsample the sun to match the WFS plate scale
-        sun_torch = torch.nn.functional.interpolate(sun_torch.unsqueeze(0), size=(new_px, new_px), mode='bilinear', align_corners=True).contiguous()
+        sun_torch = torch.nn.functional.interpolate(sun_torch.unsqueeze(0), size=(new_px, new_px), mode='area').contiguous() #, align_corners=True
         
         # Compute FFT of the sun subdirs
 
@@ -521,7 +521,7 @@ class CorrelatingShackHartmann:
         # Convolute
         sun_patches_complex = torch.fft.fftshift(torch.fft.ifft2(sun_fft*psf_fft, norm='forward', dim=(-2, -1)), dim=(-2, -1))
 
-        sun_patches = sun_patches_complex.real**2 + sun_patches_complex.imag**2
+        sun_patches = torch.sqrt(sun_patches_complex.real**2 + sun_patches_complex.imag**2)
 
         # Normalize energy
         sun_energy = subDirs_sun.sum(axis=(0,1))
