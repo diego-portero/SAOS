@@ -159,7 +159,7 @@ class CorrelatingShackHartmann:
         self.camera_params['gain'] = kwargs.get('gain', 1)
         self.camera_params['quantization_conversion'] = kwargs.get('quantization_conversion', 70.5)
         self.camera_params['sensorType'] = kwargs.get('sensorType', 'CMOS')
-        self.camera_params['darkCalibration'] = kwargs.get('darkCalibration', 0)
+        self.camera_params['darkCalibration'] = kwargs.get('darkCalibration', 20)
         self.camera_params['randomState'] = kwargs.get('randomState', None)
         self.camera_params['integrationTime'] = kwargs.get('integrationTime', telescope.samplingTime)
 
