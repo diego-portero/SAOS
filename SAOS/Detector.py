@@ -33,7 +33,7 @@ class Detector:
                  fullWellCapacity:int=np.inf,
                  nBits:int=12,                 
                  quantumEfficiency:float=1,
-                 shotNoise:float=0,
+                 shotNoise:bool=0,
                  darkCurrent:float=0,
                  readoutNoise:float=0,
                  gain:float=1,
@@ -57,16 +57,16 @@ class Detector:
             Bit depth for quantization. Default is 12, shall be >= 8
         quantumEfficiency : float, optional
             Quantum efficiency (0-1). Default is 1.
-        shotNoise : float, optional
-            Shot noise level [e-]. Default disabled, 0.
+        shotNoise : bool, optional
+            Shot noise flag. Default disabled, 0.
         darkCurrent : float, optional
             Dark current [e-]. Default disabled, 0.
         readoutNoise : float, optional
             Readout noise [e-]. Default disabled, 0.
         gain : float, optional
             Gain of the detector. Default is 1.
-        quantization_conversion : float, default 0.
-            Conversion gain to discretize the measurment [e-/px]. Default disabled, 0.
+        quantization_conversion : float, optional.
+            Conversion gain to discretize the measurement [e-/px]. Default disabled, 0.
         sensorType : str, optional
             Sensor type ('CCD', 'CMOS', 'EMCCD'). Default is 'CCD'.
         darkCalibration : int, optional
@@ -151,6 +151,13 @@ class Detector:
         else:
             self.dataType = np.uint64
 
+        # Define noise types
+        self.peak_signal        = 0
+        self.photon_noise_sigma = 0
+        self.dark_noise_sigma   = 0
+        self.readoutNoise       = 0
+        self.quantizationNoise  = 0
+
         # Calibrate dark if specified
 
         self.dark_calibration_frame = np.zeros_like(self.frame).astype(self.dataType)
@@ -163,6 +170,7 @@ class Detector:
             self.shotNoise = shotNoise
         else:
             self.dark_calibration_frame = np.zeros_like(self.frame)
+
 
     def integrate(self, ideal_frame, photons):
         """
@@ -206,6 +214,10 @@ class Detector:
             self.integration_frame = np.zeros_like(self.frame).astype(float)
             self.integrated_photons = 0
 
+            # Compute SNR
+
+            self.snr = self.get_snr()
+
             return self.frame
         else:
             return None
@@ -220,11 +232,11 @@ class Detector:
 
         # 2: Scale by the number of photons
         photons_frame = np.round(norm_frame * photons) # [photons]
-        peak_signal = self.quantumEfficiency * photons_frame.max() # [e-]
+        self.peak_signal = self.quantumEfficiency * photons_frame.max() # [e-]
 
         # 3: Photon noise
         if self.shotNoise:
-            self.photon_noise_sigma = np.sqrt(peak_signal) # sqrt([e-])
+            self.photon_noise_sigma = np.sqrt(self.peak_signal) # sqrt([e-])
             photon_noisy_frame = self.randomGenerator.poisson(photons_frame) # [photons]
         else:
             self.photon_noise_sigma = 0
@@ -271,7 +283,7 @@ class Detector:
                 self.quantizationNoise = self.fullWellCapacity / (np.sqrt(12) * 2**(self.nBits)) # [e-]
                 quantized_frame = electron_noisy_frame / ((2**self.nBits) - 1)  # [counts]
         else:
-            self.quantizationNoise = self.quantization_conversion / np.sqrt(12)  # [counts]
+            self.quantizationNoise = self.quantization_conversion / np.sqrt(12)  # [e-]
             quantized_frame = electron_noisy_frame / self.quantization_conversion  # [counts]
         
         quantized_saturated_frame = np.clip(quantized_frame, a_min=0, a_max=(2**self.nBits) - 1) # [counts]
@@ -286,6 +298,16 @@ class Detector:
         # 11: Set precision 
             
         return quantized_saturated_frame.astype(self.dataType)
+    
+    def get_snr(self):
+
+        noise_level = np.sqrt(self.photon_noise_sigma**2 + self.dark_noise_sigma**2 + self.readoutNoise**2 + self.quantizationNoise**2)
+
+        if noise_level <= 0:
+            self.logger.warning('Detector::get_snr - The noise level is <= 0, setting SNR to 0.')
+            return 0
+        
+        return self.peak_signal/noise_level
     
     def setup_logging(self, logging_level=logging.WARNING):
         #  Setup of logging at the main process using QueueHandler
