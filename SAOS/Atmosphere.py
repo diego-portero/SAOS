@@ -341,10 +341,10 @@ class Atmosphere:
         updatedLayer.displ_buffer_y += (vy*self.samplingTime) / updatedLayer.spatial_res
 
         # Check if there is a full pixel displacement and update the screen:
-        if (np.abs(updatedLayer.displ_buffer_y) > 0):
+        if (np.abs(updatedLayer.displ_buffer_y) > 1):
             updatedLayer.screen.add_row(np.sign(updatedLayer.displ_buffer_y))
             updatedLayer.displ_buffer_y = updatedLayer.displ_buffer_y - np.sign(updatedLayer.displ_buffer_y) * 1
-        if (np.abs(updatedLayer.displ_buffer_x) > 0):
+        if (np.abs(updatedLayer.displ_buffer_x) > 1):
             updatedLayer.screen.add_col(np.sign(updatedLayer.displ_buffer_x))
             updatedLayer.displ_buffer_x = updatedLayer.displ_buffer_x - np.sign(updatedLayer.displ_buffer_x) * 1
 
