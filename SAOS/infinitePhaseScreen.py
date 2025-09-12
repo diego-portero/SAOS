@@ -295,7 +295,7 @@ class PhaseScreenVonKarman():
         l0 : float
             Inner scale (m).
         r0 : float
-            Fried parameter at working wavelength (m).
+            Fried parameter at 500 nm.
         n_points : int
             Number of grid points (NxN).
         diameter : float
