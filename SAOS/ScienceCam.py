@@ -31,9 +31,12 @@ class ScienceCam:
                  plate_scale:float,
                  samplingTime:float,
                  telescope,
+                 lightRatio:float=50,
                  integrationTime:float=None,
                  decimation:int=50,
-                 logger=None):
+                 noiseFlag:bool=False,
+                 logger=None,
+                 **kwargs):
         """
         Initialize a ScienceCam object to simulate a science camera in adaptive optics simulations.
 
@@ -47,12 +50,41 @@ class ScienceCam:
             Time interval between frames [s].
         telescope : Telescope
             Associated telescope object.
+        lightRatio : float
+            Threshold ratio to select valid subapertures based on flux.            
         integrationTime : float, optional
             Integration time in seconds. Defaults to samplingTime.
         decimation : int, optional
             Decimation factor for storing results. Default is 50.
+        noiseFlag : bool, optional
+            If True, the detector includes noise using the kwargs params/default config. By default, False.                 
         logger : logging.Logger, optional
             Logger instance for diagnostics.
+        **kwargs : dict, optional
+            Additional keyword arguments.
+
+            fullWellCapacity : int, optional
+                Detector parameter. Full Well Capacity of pixels [e-]. Default, 60ke-
+            nBits : int, optional
+                Detector parameter. Bit depth for quantization. Default is 12, shall be >= 8
+            quantumEfficiency : float, optional
+                Detector parameter. Quantum efficiency (0-1). Default is 0.64.
+            shotNoise : bool, optional
+                Detector parameter. Shot noise flag. Default 1.
+            darkCurrent : float, optional
+                Detector parameter. Dark current [e-]. Default 250e-/px/s.
+            readoutNoise : float, optional
+                Detector parameter. Readout noise [e-]. Default 60e-.
+            gain : float, optional
+                Detector parameter. Gain of the detector. Default is 1.
+            quantization_conversion : float, optional.
+                Detector parameter. Conversion gain to discretize the measurement [e-/px]. Default 70.5e-/DN.
+            sensorType : str, optional
+                Detector parameter. Sensor type ('CCD', 'CMOS', 'EMCCD'). Default is 'CCD'.
+            darkCalibration : int, optional
+                Detector parameter. Number of frames to calibrate the dark. Default 20.
+            randomState : int, optional
+                Detector parameter. Seed for the random number generator. Default is None.          
         """        
         if logger is None:
             self.queue_listerner = self.setup_logging()
@@ -66,6 +98,7 @@ class ScienceCam:
         self.plate_scale      = plate_scale
         self.samplingTime     = samplingTime
         self.decimation       = decimation
+        self.lightRatio       = lightRatio
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -73,19 +106,52 @@ class ScienceCam:
             self.integrationTime = self.samplingTime
         else:
             self.integrationTime = integrationTime
-            if self.integrationTime > self.samplingTime:
-                self.logger.warning('ScienceCam::init - Currently, integration a period longer than the sampling time is not supported due to parallelization conflicts.')
         
         self.nPix = int(np.round(self.fieldOfView / self.plate_scale))
         self.telescope_diameter = telescope.D
         self.pupil = telescope.pupil.copy().astype(float)
 
-        # TODO: Add noise during the initialization
+        # Detector camera 
+
+        self.camera_size  = self.nPix
+
+        self.camera_params = dict()
+        # Default parameters correspond to pco.dimax 3.6 ST @500nm
+
+        self.camera_params['fullWellCapacity'] = kwargs.get('fullWellCapacity', 60000)
+        self.camera_params['nBits'] = kwargs.get('nBits', 10)
+        self.camera_params['quantumEfficiency'] = kwargs.get('quantumEfficiency', 0.64)
+        self.camera_params['shotNoise'] = kwargs.get('shotNoise', 1)
+        self.camera_params['darkCurrent'] = kwargs.get('darkCurrent', 250)
+        self.camera_params['readoutNoise'] = kwargs.get('readoutNoise', 60)
+        self.camera_params['gain'] = kwargs.get('gain', 1)
+        self.camera_params['quantization_conversion'] = kwargs.get('quantization_conversion', 70.5)
+        self.camera_params['sensorType'] = kwargs.get('sensorType', 'CMOS')
+        self.camera_params['darkCalibration'] = kwargs.get('darkCalibration', 20)
+        self.camera_params['randomState'] = kwargs.get('randomState', None)
+        self.camera_params['integrationTime'] = kwargs.get('integrationTime', telescope.samplingTime)
+
+        camera_kwargs = {'randomState':self.camera_params['randomState'], 
+                         'integrationTime':self.integrationTime}
+
+
+        self.cam = Detector(nPix=self.camera_size,
+                            samplingTime=telescope.samplingTime,
+                            fullWellCapacity=self.camera_params['fullWellCapacity'],
+                            nBits=self.camera_params['nBits'],                 
+                            quantumEfficiency=self.camera_params['quantumEfficiency'] ,
+                            shotNoise=self.camera_params['shotNoise'],
+                            darkCurrent=self.camera_params['darkCurrent'],
+                            readoutNoise=self.camera_params['readoutNoise'],
+                            gain=self.camera_params['gain'],
+                            quantization_conversion=self.camera_params['quantization_conversion'],
+                            sensorType=self.camera_params['sensorType'],
+                            darkCalibration=self.camera_params['darkCalibration'],
+                            noiseFlag=noiseFlag,
+                            logger=self.logger,
+                            **camera_kwargs)
         
-        self.cam  = Detector(self.nPix, self.integrationTime, 
-                             self.samplingTime, logger=self.logger)
-        
-        fake_src = SimpleNamespace(tag='source',wavelength=500e-9)
+        fake_src = SimpleNamespace(tag='ideal',wavelength=500e-9)
         self.ideal_psf = self.get_frame(fake_src, phase=self.pupil*0)
 
     def get_frame(self, src, phase):
@@ -111,7 +177,10 @@ class ScienceCam:
         if src.tag == 'source':
             psf = self.compute_psf(phase, fwhm)
             
-            frame = self.cam.integrate(psf.cpu().numpy()) # The coherence is the PSF because the object is a point-source
+            frame = self.cam.integrate(psf.cpu().numpy(), src.nPhoton*self.lightRatio) # The coherence is the PSF because the object is a point-source
+        
+        elif src.tag == 'ideal':
+            frame = self.compute_psf(phase, fwhm).cpu().numpy()
         
         elif src.tag == 'sun':
             if src.fov < self.fieldOfView:
@@ -185,7 +254,7 @@ class ScienceCam:
             t5 = time.time()
             # Add detector noise
 
-            frame = self.cam.integrate(frame)
+            frame = self.cam.integrate(frame, src.nPhoton*self.lightRatio)
             t6 = time.time()
             self.logger.debug(f'to 3D; {t1-t0}, interpolate: {t2-t1}, compute psf: {t3-t2}, compute image: {t4-t3}, combine: {t5-t4}, integrate: {t6-t5}, total: {t6-t0}')
         else:

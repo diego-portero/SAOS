@@ -40,6 +40,7 @@ class Detector:
                  quantization_conversion:float=0,
                  sensorType:str='CCD',
                  darkCalibration:bool=True,
+                 noiseFlag:bool=True,
                  logger=None,
                  **kwargs):
         '''
@@ -71,6 +72,8 @@ class Detector:
             Sensor type ('CCD', 'CMOS', 'EMCCD'). Default is 'CCD'.
         darkCalibration : int, optional
             Number of frames to calibrate the dark. By default disabled, 0.
+        noiseFlag : bool, optional
+            If True, the detector adds noise using the params/default config. By default, True.            
         logger : logging.Logger, optional
             Logger instance for diagnostics.
         **kwargs : dict, optional
@@ -107,6 +110,8 @@ class Detector:
         self.gain                    = gain
         self.quantization_conversion = quantization_conversion
         self.sensorType              = sensorType
+
+        self.noiseFlag          = noiseFlag
 
         # Check consistency of parameters
         if self.nBits < 8:
@@ -159,8 +164,10 @@ class Detector:
         self.quantizationNoise  = 0
 
         # Calibrate dark if specified
+        self.dark_calibration_frame = np.zeros_like(self.frame)
 
-        self.dark_calibration_frame = np.zeros_like(self.frame).astype(self.dataType)
+        if self.noiseFlag:
+            self.dark_calibration_frame.astype(self.dataType)
 
         if self.darkCalibration > 0:
             self.shotNoise = 0 # Disable shot noise to avoid crash in the Poisson of lam=0
@@ -206,8 +213,11 @@ class Detector:
         self.integrated_time += deltaTime
 
         if self.integrated_time == self.integrationTime:
-            # Get the noisy frame
-            self.frame = self.readout(self.integration_frame, self.integrated_photons)
+            if self.noiseFlag:
+                # Get the noisy frame
+                self.frame = self.readout(self.integration_frame, self.integrated_photons)
+            else:
+                self.frame = ideal_frame
 
             # Restart the integration time, frame and photons
             self.integrated_time = 0
@@ -302,12 +312,16 @@ class Detector:
     def get_snr(self):
 
         noise_level = np.sqrt(self.photon_noise_sigma**2 + self.dark_noise_sigma**2 + self.readoutNoise**2 + self.quantizationNoise**2)
-
-        if noise_level <= 0:
-            self.logger.warning('Detector::get_snr - The noise level is <= 0, setting SNR to 0.')
-            return 0
         
-        return self.peak_signal/noise_level
+        if self.noiseFlag:
+            if noise_level <= 0:
+                self.logger.warning('Detector::get_snr - The noise level is <= 0, setting SNR to 0.')
+                return 0
+        
+            return self.peak_signal/noise_level
+        else:
+            return np.inf
+        
     
     def setup_logging(self, logging_level=logging.WARNING):
         #  Setup of logging at the main process using QueueHandler

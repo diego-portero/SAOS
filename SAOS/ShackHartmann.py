@@ -43,7 +43,9 @@ class ShackHartmann:
                  use_brightest:int = 50,
                  threshold_convolution:float = 0.05,
                  unit_in_rad = False,
-                 logger=None):
+                 noiseFlag:bool=False,
+                 logger=None,
+                 **kwargs):
         
         """
         Initialize a Shack-Hartmann Wavefront Sensor (WFS).
@@ -74,8 +76,37 @@ class ShackHartmann:
             Cut-off threshold for Gaussian convolution.
         unit_in_rad : bool, optional
             Return slopes in radians if True, pixels otherwise.
+        noiseFlag : bool, optional
+            If True, the detector includes noise using the kwargs params/default config. By default, False.
         logger : logging.Logger, optional
             Logger for WFS diagnostics.
+        **kwargs : dict, optional
+            Additional keyword arguments.
+
+            fullWellCapacity : int, optional
+                Detector parameter. Full Well Capacity of pixels [e-]. Default, 60ke-
+            nBits : int, optional
+                Detector parameter. Bit depth for quantization. Default is 12, shall be >= 8
+            quantumEfficiency : float, optional
+                Detector parameter. Quantum efficiency (0-1). Default is 0.64.
+            shotNoise : bool, optional
+                Detector parameter. Shot noise flag. Default 1.
+            darkCurrent : float, optional
+                Detector parameter. Dark current [e-]. Default 250e-/px/s.
+            readoutNoise : float, optional
+                Detector parameter. Readout noise [e-]. Default 60e-.
+            gain : float, optional
+                Detector parameter. Gain of the detector. Default is 1.
+            quantization_conversion : float, optional.
+                Detector parameter. Conversion gain to discretize the measurement [e-/px]. Default 70.5e-/DN.
+            sensorType : str, optional
+                Detector parameter. Sensor type ('CCD', 'CMOS', 'EMCCD'). Default is 'CCD'.
+            darkCalibration : int, optional
+                Detector parameter. Number of frames to calibrate the dark. Default 20.
+            randomState : int, optional
+                Detector parameter. Seed for the random number generator. Default is None.
+            integrationTime : float, optional
+                Detector parameter. Integration time for the detector [s]. Default is the sampling time.        
         """
         if logger is None:
             self.queue_listerner = self.setup_logging()
@@ -121,9 +152,42 @@ class ShackHartmann:
         # Detector camera 
 
         self.camera_size                = self.nSubap * self.npix_lenslet + (self.nSubap + 1)* self.guardPx
-        self.cam                        = Detector(self.camera_size, samplingTime=telescope.samplingTime, logger=self.logger)   # WFS detector object
-        self.cam.photonNoise            = 0
-        self.cam.readoutNoise           = 0
+
+        self.camera_params = dict()
+        # Default parameters correspond to pco.dimax 3.6 ST @500nm
+
+        self.camera_params['fullWellCapacity'] = kwargs.get('fullWellCapacity', 60000)
+        self.camera_params['nBits'] = kwargs.get('nBits', 10)
+        self.camera_params['quantumEfficiency'] = kwargs.get('quantumEfficiency', 0.64)
+        self.camera_params['shotNoise'] = kwargs.get('shotNoise', 1)
+        self.camera_params['darkCurrent'] = kwargs.get('darkCurrent', 250)
+        self.camera_params['readoutNoise'] = kwargs.get('readoutNoise', 60)
+        self.camera_params['gain'] = kwargs.get('gain', 1)
+        self.camera_params['quantization_conversion'] = kwargs.get('quantization_conversion', 70.5)
+        self.camera_params['sensorType'] = kwargs.get('sensorType', 'CMOS')
+        self.camera_params['darkCalibration'] = kwargs.get('darkCalibration', 20)
+        self.camera_params['randomState'] = kwargs.get('randomState', None)
+        self.camera_params['integrationTime'] = kwargs.get('integrationTime', telescope.samplingTime)
+
+        camera_kwargs = {'randomState':self.camera_params['randomState'], 
+                         'integrationTime':self.camera_params['integrationTime']}
+
+
+        self.cam = Detector(nPix=self.camera_size,
+                            samplingTime=telescope.samplingTime,
+                            fullWellCapacity=self.camera_params['fullWellCapacity'],
+                            nBits=self.camera_params['nBits'],                 
+                            quantumEfficiency=self.camera_params['quantumEfficiency'] ,
+                            shotNoise=self.camera_params['shotNoise'],
+                            darkCurrent=self.camera_params['darkCurrent'],
+                            readoutNoise=self.camera_params['readoutNoise'],
+                            gain=self.camera_params['gain'],
+                            quantization_conversion=self.camera_params['quantization_conversion'],
+                            sensorType=self.camera_params['sensorType'],
+                            darkCalibration=self.camera_params['darkCalibration'],
+                            noiseFlag=noiseFlag,
+                            logger=self.logger,
+                            **camera_kwargs)
         
         # Flux definition
 
@@ -225,12 +289,6 @@ class ShackHartmann:
         None
         """
         self.isInitialized = False
-
-        readoutNoise = np.copy(self.cam.readoutNoise)
-        photonNoise = np.copy(self.cam.photonNoise)
-        
-        self.cam.photonNoise        = 0
-        self.cam.readoutNoise       = 0       
         
         # flux per subaperture
         self.reference_slopes_maps  = np.zeros([self.nSubap*2,self.nSubap])
@@ -268,9 +326,6 @@ class ShackHartmann:
             self.slopes_units = np.abs(p[0]) # [px/rad]
         
         self.logger.info('ShackHartmann::initialize_wfs - Done!') 
-
-        self.cam.photonNoise        = readoutNoise
-        self.cam.readoutNoise       = photonNoise
         
         self.print_properties()
 
@@ -361,9 +416,9 @@ class ShackHartmann:
                          self.nSubap, self.npix_lenslet).transpose(0, 2, 1, 3).reshape(self.nSubap*self.nSubap, 
                                                                                        self.npix_lenslet, self.npix_lenslet) 
         # Assign the illumination to the region, considering zeropadding
-        center = self.npix_lenslet // 2
-        self.cube_flux[:,center - self.npix_lenslet//2:center+self.npix_lenslet//2,
-                         center - self.npix_lenslet//2:center+self.npix_lenslet//2] = input_flux_map
+        corner = self.npix_lenslet // 2 - self.npix_lenslet//2
+        self.cube_flux[:,corner:corner+self.npix_lenslet,
+                         corner:corner+self.npix_lenslet] = input_flux_map
       
         # Get general properties of the illumination
         self.photon_per_subaperture = np.apply_over_axes(np.sum, self.cube_flux, [1,2])
@@ -709,7 +764,7 @@ class ShackHartmann:
         return
     
 #%% SH Measurement
-    def wfs_integrate(self, ideal_frame, subaps):
+    def wfs_integrate(self, ideal_frame, subaps, nPhoton):
         """
         Integrate the full detector image and compute valid slopes.
 
@@ -726,7 +781,7 @@ class ShackHartmann:
             Slopes 1D, slopes 2D, and final noisy image.
         """
         # propagate to detector to add noise and detector effects
-        noisy_frame = self.cam.integrate(ideal_frame)
+        noisy_frame = self.cam.integrate(ideal_frame, nPhoton)
         subaps = self.get_subaps(noisy_frame)
 
         # compute the centroid on valid subaperture
@@ -805,7 +860,7 @@ class ShackHartmann:
 
         ideal_frame = self.create_full_frame(I)
         t2 = time.time()
-        signal, signal_2D, noisy_frame = self.wfs_integrate(ideal_frame, I)                
+        signal, signal_2D, noisy_frame = self.wfs_integrate(ideal_frame, I, src.nPhoton*self.lightRatio)                
         t3 = time.time()
         self.logger.debug(f'Get PSF: {(t1-t0)*1000}')
         self.logger.debug(f'Create full frame: {(t2-t1)*1000}')

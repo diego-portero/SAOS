@@ -40,6 +40,7 @@ class CorrelatingShackHartmann:
                  use_brightest:int = 9,
                  threshold_convolution:float = 0.05,
                  unit_in_rad = False,
+                 noiseFlag:bool=False,
                  logger=None,
                  **kwargs):
         
@@ -72,6 +73,8 @@ class CorrelatingShackHartmann:
             Cut-off threshold for Gaussian convolution.
         unit_in_rad : bool, optional
             Return slopes in radians if True, pixels otherwise.
+        noiseFlag : bool, optional
+            If True, the detector includes noise using the kwargs params/default config. By default, False.            
         logger : logging.Logger, optional
             Logger for WFS diagnostics.
         **kwargs : dict, optional
@@ -179,6 +182,7 @@ class CorrelatingShackHartmann:
                             quantization_conversion=self.camera_params['quantization_conversion'],
                             sensorType=self.camera_params['sensorType'],
                             darkCalibration=self.camera_params['darkCalibration'],
+                            noiseFlag=noiseFlag,
                             logger=self.logger,
                             **camera_kwargs)
         
@@ -430,9 +434,9 @@ class CorrelatingShackHartmann:
                          self.nSubap, self.npix_lenslet).transpose(0, 2, 1, 3).reshape(self.nSubap*self.nSubap, 
                                                                                        self.npix_lenslet, self.npix_lenslet) 
         # Assign the illumination to the region, considering zeropadding
-        center = self.npix_lenslet // 2
-        self.cube_flux[:,center - self.npix_lenslet//2:center+self.npix_lenslet//2,
-                         center - self.npix_lenslet//2:center+self.npix_lenslet//2] = input_flux_map
+        corner = self.npix_lenslet // 2 - self.npix_lenslet//2
+        self.cube_flux[:,corner:corner+self.npix_lenslet,
+                         corner:corner+self.npix_lenslet] = input_flux_map
       
         # Get general properties of the illumination
         self.photon_per_subaperture = np.apply_over_axes(np.sum, self.cube_flux, [1,2])
