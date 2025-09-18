@@ -7,6 +7,8 @@ import h5py
 import os
 from datetime import datetime
 
+from scipy import signal
+
 import logging
 import logging.handlers
 from queue import Queue
@@ -227,6 +229,7 @@ class Savepoint:
             'std': None,
             'rms': None,
             'contrast': None,
+            'MFGS': None,
             'strehl': None,
         }
 
@@ -267,9 +270,36 @@ class Savepoint:
                     dict_stats['contrast'] = np.array([std_intensity / mean_intensity])
                 else:
                     dict_stats['contrast'] = np.array([0.0])
+                
+                # Get median filtered image
+                filter = np.ones((3,3))
+                filter /= np.prod(filter.shape)
+                med = signal.convolve2d(data, filter, mode='same', boundary='symm')
+                # Create Gradient filters
+                kx = np.array(([-3, 0, 3], [-10, 0, 10], [-3, 0, 3]))
+                ky = np.rot90(kx)
+                # compute gradient of the median filtered image
+                kx_med = signal.convolve2d(med, kx, mode='same', boundary='symm')
+                ky_med = signal.convolve2d(med, ky, mode='same', boundary='symm')
+                # Compute gradient of the original image
+                kx_img = signal.convolve2d(data, kx, mode='same', boundary='symm')
+                ky_img = signal.convolve2d(data, ky, mode='same', boundary='symm')
+                # combine gradients
+                g_img = np.sum(np.sqrt(kx_img**2 + ky_img**2))
+                g_med = np.sum(np.sqrt(kx_med**2 + ky_med**2))
+                # compute metric
+                numerator = 2.0 * g_img * g_med
+                denominator = g_img**2 + g_med**2
+
+                if denominator < 1e-9:
+                   dict_stats['MFGS'] = np.array([0.0])
+                else:                   
+                    dict_stats['MFGS'] = numerator / denominator                                                  
             else:
+                 ideal_psf = lp.sci.fake_src_dict[str(int(lp.src.wavelength*1e9))]
+                 
                  i_peak_norm = np.max(data) / np.sum(data)
-                 i_peak_ideal_norm = np.max(lp.sci.ideal_psf) / np.sum(lp.sci.ideal_psf)
+                 i_peak_ideal_norm = np.max(ideal_psf) / np.sum(ideal_psf)
 
                  dict_stats['strehl'] = np.array([i_peak_norm / i_peak_ideal_norm ])
 
