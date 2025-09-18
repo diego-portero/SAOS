@@ -151,8 +151,7 @@ class ScienceCam:
                             logger=self.logger,
                             **camera_kwargs)
         
-        fake_src = SimpleNamespace(tag='ideal',wavelength=500e-9)
-        self.ideal_psf = self.get_frame(fake_src, phase=self.pupil*0)
+        self.fake_src_dict = {}
 
     def get_frame(self, src, phase):
         """
@@ -171,16 +170,22 @@ class ScienceCam:
         np.ndarray
             Final science frame with detector effects.
         """
-        
+
         fwhm = (src.wavelength / self.telescope_diameter) * (206265 / self.plate_scale)
 
         if src.tag == 'source':
+            # First, check whether we have an ideal PSF for the current wavelength or not
+
+            key_wavelength = str(int(src.wavelength*1e9))
+
+            if key_wavelength not in self.fake_src_dict.keys():
+                # Compute Ideal PSF for this wavelength
+                self.fake_src_dict[key_wavelength] = self.compute_psf(phase*0, fwhm).cpu().numpy()   
+            
+            # Continue computing the PSF of the source                     
             psf = self.compute_psf(phase, fwhm)
             
             frame = self.cam.integrate(psf.cpu().numpy(), src.nPhoton*self.lightRatio) # The coherence is the PSF because the object is a point-source
-        
-        elif src.tag == 'ideal':
-            frame = self.compute_psf(phase, fwhm).cpu().numpy()
         
         elif src.tag == 'sun':
             if src.fov < self.fieldOfView:
