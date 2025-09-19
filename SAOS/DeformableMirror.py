@@ -61,7 +61,8 @@ class DeformableMirror:
                  flip_lr = False,
                  sign = 1,
                  valid_act_thresh_outer = None,
-                 logger = None):
+                 logger = None,
+                 **kwargs):
         """
         Initialize a Deformable Mirror (DM) with zonal or modal influence functions.
 
@@ -97,6 +98,11 @@ class DeformableMirror:
             Threshold for validating actuators outside pupil.
         logger : logging.Logger, optional
             Logger instance.
+        **kwargs : dict, optional
+            Additional keyword arguments.
+            
+            validActThreshpercentage : float, optional
+                Parameter to select a percentage of the actuator pitch to consider it valid o not.
         """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
@@ -141,6 +147,8 @@ class DeformableMirror:
             self.misReg = MisRegistration()
         else:
             self.misReg=misReg
+
+        validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.7533)
         
         ## DM initialization
 
@@ -165,7 +173,7 @@ class DeformableMirror:
             r = np.sqrt(self.xIF0**2 + self.yIF0**2)
             
             if valid_act_thresh_outer is None: 
-                valid_act_thresh_outer = self.dm_layer.D_fov/2+0.7533*self.pitch
+                valid_act_thresh_outer = self.dm_layer.D_fov/2+validActThreshpercentage*self.pitch
             
             self.validAct = r <= valid_act_thresh_outer
     
