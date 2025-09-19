@@ -211,8 +211,11 @@ class Atmosphere:
             self.logger.error('Atmosphere::save - The atmosphere has not been initialized yet.')
             return False
         
-        # Create folder if it doe snot exist
+        # Create folder if it does not exist
         os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+        if not filename.endswith(".h5"):
+            filename += ".h5"
         
         self.logger.info('Atmosphere::save - Creating the H5 file tree')
 
@@ -257,6 +260,10 @@ class Atmosphere:
             True if loaded successfully, False otherwise.
         """
         self.logger.debug('Atmosphere::load')
+
+
+        if not filename.endswith(".h5"):
+            filename += ".h5"        
 
         with h5py.File(filename, 'r') as f:
             for i_layer, grp_name in enumerate(f.keys()):

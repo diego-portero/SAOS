@@ -58,6 +58,8 @@ class ReceptionPoint:
         self.socket.connect(self.protocol + '://' + self.ip + ':' + str(self.port))
         self.poller = zmq.Poller()
         self.poller.register(self.socket, zmq.POLLIN)
+
+        self.actual_loop_state = None
 	
     def sendRequest(self, buffer_type=''):
         """
@@ -102,6 +104,45 @@ class ReceptionPoint:
                     self.poller.register(self.socket, zmq.POLLIN)
                     self.logger.error('ReceptionPoint::sendRequest - Timeout.')
                     break
+        
+        elif buffer_type == "loop_cmd":
+            while True:
+                try:
+                    if self.actual_loop_state is None:
+                        self.actual_loop_state = -1
+                    payload = {
+                        "buffer_type": "loop_cmd",
+                        "actual_state": self.actual_loop_state
+                    }
+                    self.logger.debug(f"ReceptionPoint::sendRequest - actual_state: {self.actual_loop_state} ")
+                    self.socket.send(pickle.dumps(payload))
+
+                    if self.poller.poll(timeout=self.timeout):
+                        data = self.socket.recv()
+                        response = pickle.loads(data)
+                        self.logger.info("ReceptionPoint::sendRequest - loop_cmd answer received ")
+                        result = int(response["desired_state"] )  # 0/1
+                        self.actual_loop_state = result
+                        self.logger.debug(f"ReceptionPoint::sendRequest - desired_state: {self.actual_loop_state}")
+                        break
+                    else:
+                        result = None
+                        # Reset socket
+                        try:
+                            self.socket.setsockopt(zmq.LINGER, 0)
+                            self.socket.close()
+                        except Exception:
+                            pass
+                        self.socket = self.context.socket(zmq.REQ)
+                        self.socket.connect(self.protocol + "://" + self.ip + ":" + str(self.port))
+                        self.poller.register(self.socket, zmq.POLLIN)
+                        self.logger.error("ReceptionPoint::sendRequest - loop_cmd timeout.")
+                        break
+                except Exception as e:
+                    self.logger.error(f"ReceptionPoint::sendRequest - loop_cmd error: {e}")
+                    result = None
+                    break
+        
         else:
             result = None
             self.logger.warning('ReceptionPoint::sendRequest - Unsupported buffer type.')
