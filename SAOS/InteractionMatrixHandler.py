@@ -3,7 +3,7 @@ import time
 import numpy as np
 from joblib import Parallel, delayed
 
-from astropy.io import fits
+import h5py
 import os
 
 from SAOS.modalBasis.zonalModes import generate_zonal_modes
@@ -47,7 +47,7 @@ class InteractionMatrixHandler:
         self.light_path_list = None
         self.im_boolean_matrix = None
         self.interaction_matrix_warehouse = None
-        self.modal_basis = None
+        self.modal_basis = []
         
 
     # Checks the Light Paths defined to knwo the interaction matrices that are necessary and prepares the measurement procedure
@@ -72,6 +72,9 @@ class InteractionMatrixHandler:
 
         if not isinstance(light_path_list, list):
             light_path_list = [light_path_list]
+
+        # List of modes avaiable:
+        self.modal_list = ['zonal', 'zernike', 'kl', 'hadamard', 'dh']
         
         # For efficiency, we need to detect the different DMs of the optical configuration. This will enable this class
         # to move each DM once and measure all the WFS affected, avoiding repeating any movement and saving time.
@@ -151,9 +154,7 @@ class InteractionMatrixHandler:
         t0 = time.time()
         modes = Parallel(n_jobs=len(tasks), prefer="threads")(tasks)
         self.logger.info(f'InteractionMatrixHandler::generate_modal_basis - Modal basis generated, took {time.time()-t0} [s]')
-        
-        self.modal_basis = []
-        self.modal_list = ['zonal', 'zernike', 'kl', 'hadamard', 'DH']
+               
         modal_basis_dict = dict.fromkeys(self.modal_list, None)
 
         for i in range(len(self.dm_scanned_list)):
@@ -228,8 +229,11 @@ class InteractionMatrixHandler:
                 nModes_per_DM = [self.dm_scanned_list[i].nValidAct for i in range(self.im_boolean_matrix.shape[1])]
             else:
                 raise TypeError('InteractionMatrixHandler::measure - None or list were expected.')
+        if modal_basis not in self.modal_list:
+            self.logger.error(f'InteractionMatrixHandler::measure Modal basis ({modal_basis}) unrecognised, supported types are: {self.modal_list}')
+            raise ValueError('InteractionMatrixHandler::measure - Unsupported modal basis.')
         # Before measuring the IMs, we need to have all the modal basis available
-        if self.modal_basis is None:
+        if self.modal_basis == []:
             self.generate_modal_basis()
         # Once the input parameters are defined, we proceed to measure the IM
         # Prepare the variable to store the different IMs
@@ -283,7 +287,7 @@ class InteractionMatrixHandler:
     
     def save_IM(self, filename=None):
         """
-        Save the interaction matrix warehouse to a FITS file.
+        Save the interaction matrix warehouse to a self.im_boolean_matrix[j, i]H5 file.
 
         Parameters
         ----------
@@ -300,49 +304,44 @@ class InteractionMatrixHandler:
         if self.interaction_matrix_warehouse is None:
             self.logger.error('InteractionMatrixHandler::save_IM - IM warehouse not initialized.')
             return False
-
-        self.logger.info('InteractionMatrixHandler::save_IM - Creating the HDU')
         
-        primary_hdu = fits.PrimaryHDU()
-        primary_hdu.header['nDMs']    = len(self.dm_scanned_list)
-        primary_hdu.header['nLPs']    = len(self.light_path_list)
+        self.logger.info('InteractionMatrixHandler::save_IM - Writting...') 
 
-        hdu_list = []
-        hdu_list.append(primary_hdu)
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
 
-        # Create the header entries for each DM and Light Path
+        if not filename.endswith(".h5"):
+            filename += ".h5"
+            
+        with h5py.File(filename, 'a') as f:
+            f.attrs['nLPS'] = len(self.light_path_list)
+            f.attrs['nDMs'] = len(self.dm_scanned_list)
 
-        for i in range(len(self.dm_scanned_list)):
-            hdu_list[0].header['DM' + str(i) + 'vAct'] = self.dm_scanned_list[i].nValidAct
-            hdu_list[0].header['DM' + str(i) + 'alt']  = self.dm_scanned_list[i].altitude
-            hdu_list[0].header['DM' + str(i) + 'mech'] = self.dm_scanned_list[i].mechCoupling
-
-        for i in range(len(self.light_path_list)):
-            if np.sum(self.im_boolean_matrix[i,:]) > 0: # There is an IM defined for this LP, so there is WFS
-                hdu_list[0].header['LP' + str(i) + 'wl']    = self.light_path_list[i].src.wavelength
-                hdu_list[0].header['LP' + str(i) + 'radi']    = np.round(self.light_path_list[i].src.coordinates[0], 2)
-                hdu_list[0].header['LP' + str(i) + 'azim']    = np.round(self.light_path_list[i].src.coordinates[1], 2)
-                hdu_list[0].header['LP' + str(i) + 'sign']    = self.light_path_list[i].wfs.nSignal
-            else:
-                hdu_list[0].header['LP' + str(i) + 'wl']      = 0
-
-        for i in range(len(self.dm_scanned_list)):
-            for j in range(len(self.light_path_list)):
-                if self.im_boolean_matrix[j, i]:
-                    name = str(i) + '-' + str(j) + '-' + self.interaction_matrix_warehouse[i][j]['modalBasis'][:2] + \
-                            '-' + self.interaction_matrix_warehouse[i][j]['slopes_units'][:2]
-                    hdu_list.append(fits.ImageHDU(self.interaction_matrix_warehouse[i][j]['IM'], name=name))
-
-       
-        self.logger.info('InteractionMatrixHandler::save_IM - Writting...')
-        hdul = fits.HDUList(hdu_list)
-        os.makedirs(os.path.dirname(filename+'.fits'), exist_ok=True)
-        hdul.writeto(filename + '.fits', overwrite=True)
+            for i in range(len(self.light_path_list)):
+                if np.sum(self.im_boolean_matrix[i,:]) > 0: # There is an IM defined for this LP, so there is WFS
+                    # Append LP
+                    lp_group = f.create_group('LP' + str(i))
+                    # Set main attributes of this LP
+                    lp_group.attrs['wavelength'] = self.light_path_list[i].src.wavelength
+                    lp_group.attrs['zenith']     = np.round(self.light_path_list[i].src.coordinates[0], 2)
+                    lp_group.attrs['azimuth']    = np.round(self.light_path_list[i].src.coordinates[1], 2)
+                    lp_group.attrs['nSignal']    = self.light_path_list[i].wfs.nSignal
+                    # Create the IMs
+                    for j in range(self.im_boolean_matrix.shape[1]):
+                        if self.im_boolean_matrix[i,j]: # There is an interaction with DM j
+                            im_subgroup = lp_group.create_group('IM' + str(j))
+                            # Append DMs attributes
+                            im_subgroup.attrs['nValidAct']    = self.dm_scanned_list[j].nValidAct
+                            im_subgroup.attrs['altitude']     = self.dm_scanned_list[j].altitude
+                            im_subgroup.attrs['mechCoupling'] = self.dm_scanned_list[j].mechCoupling
+                            im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[i][j]['modalBasis']
+                            # Append IM
+                            im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[i][j]['IM'])
+                        
         self.logger.info('InteractionMatrixHandler::save_IM - Saved.')
     
     def save_modalBasis(self, filename):
         """
-        Save the generated modal bases to a FITS file.
+        Save the generated modal bases to a H5 file.
 
         Parameters
         ----------
@@ -360,28 +359,25 @@ class InteractionMatrixHandler:
             self.logger.error('InteractionMatrixHandler::save_modalBasis - Modal Basis not initialized.')
             return False
 
-        self.logger.info('InteractionMatrixHandler::save_modalBasis - Creating the HDU')
-        
-        primary_hdu = fits.PrimaryHDU()
-        primary_hdu.header['nDMs']    = len(self.dm_scanned_list)
-
-        hdu_list = []
-        hdu_list.append(primary_hdu)
-
-        # Create the header entries for each DM and Light Path
-
-        for i in range(len(self.dm_scanned_list)):
-            hdu_list[0].header['DM' + str(i) + 'vAct'] = self.dm_scanned_list[i].nValidAct
-
-        for i in range(len(self.dm_scanned_list)):
-            for j in range(len(self.modal_list)):
-                name = str(i) + '-' + self.modal_list[j][:2]
-                hdu_list.append(fits.ImageHDU(self.modal_basis[i][self.modal_list[j]], name=name))
-       
         self.logger.info('InteractionMatrixHandler::save_IM - Writting...')
-        hdul = fits.HDUList(hdu_list)
-        os.makedirs(os.path.dirname(filename+'.fits'), exist_ok=True)
-        hdul.writeto(filename + '.fits', overwrite=True)
+
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+        if not filename.endswith(".h5"):
+            filename += ".h5"
+            
+        with h5py.File(filename, 'a') as f:
+            for i in range(len(self.modal_list)):
+                # Create one group per modal basis
+                modal_group = f.create_group(self.modal_list[i])
+                # For each modal basis, create a subgroup per DM --> The name is the number of valid acts
+                for j in range(len(self.dm_scanned_list)):
+                    dm_subgroup = modal_group.create_group('DM' + str(self.dm_scanned_list[j].nValidAct))
+                    # Then, we add the modal base and the metadata
+                    dm_subgroup.create_dataset('data', data=self.modal_basis[j][self.modal_list[i]])
+                    dm_subgroup.attrs['nAct'] = self.dm_scanned_list[j].nAct
+                    dm_subgroup.attrs['nValidAct'] = self.dm_scanned_list[j].nValidAct
+       
         self.logger.info('InteractionMatrixHandler::save_IM - Saved.')        
 
     def load_IM(self, filename):
@@ -391,7 +387,7 @@ class InteractionMatrixHandler:
         Parameters
         ----------
         filename : str
-            File path without .fits extension.
+            File path with/without .h5 extension.
 
         Returns
         -------
@@ -402,66 +398,54 @@ class InteractionMatrixHandler:
         if self.im_boolean_matrix is None:
             self.logger.error('InteractionMatrixHandler::load_IM - The class has not been initialize, the im_boolean_matrix is None.')
             raise ValueError('The class has not been initialize, the im_boolean_matrix is None.')
-        # Read the file
-        with fits.open(filename + '.fits') as hdul:
+        
+        if not filename.endswith(".h5"):
+            filename += ".h5"
+
+        # Initialize the warehouse
+        im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
+        self.interaction_matrix_warehouse = [[im_dict for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
+
+        with h5py.File(filename, 'r') as f:
+            # Loop over the light paths
+            for i in range(len(self.light_path_list)):
+                if np.sum(self.im_boolean_matrix[i,:]) > 0: # This LP has a WFS
+                    # Find the match in the file
+                    lp_match_key = None
+                    for j in range(len(f.keys())):
+                        if (f['LP' + str(j)].attrs['wavelength'] == self.light_path_list[i].src.wavelength) and \
+                           (f['LP' + str(j)].attrs['zenith']       == np.round(self.light_path_list[i].src.coordinates[0], 2)) and \
+                           (f['LP' + str(j)].attrs['azimuth']      == np.round(self.light_path_list[i].src.coordinates[1], 2)) and \
+                           (f['LP' + str(j)].attrs['nSignal']      == self.light_path_list[i].wfs.nSignal):
+                           lp_match_key = 'LP' + str(j)
+                           break
+                    if lp_match_key is None:
+                        self.logger.error('InteractionMatrixHandler::load_IM - There is no match for the curent LP in the IM file.')
+                        raise ValueError('There is no match for the curent LP in the IM file.')
+                    # Then, access the IMs and find the DM match
+                    for j in range(len(f[lp_match_key].keys())):
+                        dm_match_idx = None
+                        for k in range(len(self.dm_scanned_list)):
+                            if self.im_boolean_matrix[i,k]: # DM with an interaction with the current LP
+                                # Check the parameters
+                                if (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[j].nValidAct) and \
+                                   (f[lp_match_key]['IM' + str(j)].attrs['altitude']  == self.dm_scanned_list[j].altitude) and \
+                                   (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[j].nValidAct):
+                                    # We have a match with the current DM
+                                    dm_match_idx = k
+                                    break
+                        
+                        if dm_match_idx is None:
+                            self.logger.error('InteractionMatrixHandler::load_IM - The DMs do not match the IM.')
+                            raise ValueError('The DMs do not match the IM.')
+                        
+                        # Store the IM
+                        self.interaction_matrix_warehouse[i][j]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
+                        self.interaction_matrix_warehouse[i][j]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
             
-            # Check the parameters:
-            if hdul[0].header['nDMs'] == len(self.dm_scanned_list):
-                nDMs = hdul[0].header['nDMs']
-            else:
-                raise ValueError('InteractionMatrixHandler::load_IM - Number of DMs of the file does not match the current setup.')
-            
-            if hdul[0].header['nLPs'] == len(self.light_path_list):
-                nLPs = hdul[0].header['nLPs']
-            else:
-                raise ValueError('InteractionMatrixHandler::load_IM - Number of LightPaths of the file does not match the current setup.')
-            
-            # Check the DMs parameters:
+        self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
 
-            for i in range(nDMs):
-                if ((hdul[0].header['DM' + str(i) + 'vAct'] != self.dm_scanned_list[i].nValidAct) or
-                    (hdul[0].header['DM' + str(i) + 'alt']  != self.dm_scanned_list[i].altitude)  or
-                    (hdul[0].header['DM' + str(i) + 'mech'] != self.dm_scanned_list[i].mechCoupling)):
-                    raise ValueError('InteractionMatrixHandler::load_IM - stored DM parameters do not match current simulation.')
-
-            # Check the LPs parameters
-
-            for i in range(nLPs):
-                if hdul[0].header['LP' + str(i) + 'wl'] == 0: # This implies that there is no IM defined for this LP, let's check the simulation config
-                    if np.sum(self.im_boolean_matrix[i,:]) > 0:
-                        raise ValueError('InteractionMatrixHandler::load_IM - This LP should have IM defined, but the file does not contain any.')
-
-                if ((hdul[0].header['LP' + str(i) + 'wl']    != self.light_path_list[i].src.wavelength)                   or
-                    (hdul[0].header['LP' + str(i) + 'radi']  != np.round(self.light_path_list[i].src.coordinates[0], 2))  or
-                    (hdul[0].header['LP' + str(i) + 'azim']  != np.round(self.light_path_list[i].src.coordinates[1], 2))   or
-                    (hdul[0].header['LP' + str(i) + 'sign']  != self.light_path_list[i].wfs.nSignal)):
-                    raise ValueError('InteractionMatrixHandler::load_IM - stored LPs parameters do not match current simulation.')                
-                
-            # Verification passed, so we can use the class properties from now on
-            im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
-            self.interaction_matrix_warehouse = [[im_dict for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
-            
-            modal_map = {'zo': 'zonal', 'ZO': 'zonal', 'ze': 'zernike', 'ZE': 'zernike',
-                     'kl': 'KL', 'KL': 'KL', 'dh': 'DH', 'DH': 'DH', 'ha': 'hadamard', 'HA': 'hadamard'}
-
-            for hdu in hdul[1:]:
-                name_parts = hdu.name.split('-')
-                i, j, modalBasis, slopes_units = int(name_parts[0]), int(name_parts[1]), name_parts[2], name_parts[3]
-                
-                if isinstance(hdu.data, np.ndarray) and self.im_boolean_matrix[j, i]:
-
-                    self.interaction_matrix_warehouse[i][j] = {
-                        'IM': hdu.data,
-                        'modalBasis': modal_map[modalBasis],
-                        'slopes_units': slopes_units
-                    }
-                elif (not isinstance(hdu.data, np.ndarray) and self.im_boolean_matrix[j, i] or
-                      isinstance(hdu.data, np.ndarray) and not self.im_boolean_matrix[j, i]):
-                    raise ValueError(f'InteractionMatrixHandler::load_IM - there is not an agreement between the im_boolean_matrix and the content of the IMs for card {hdu.name}.')
-            
-            self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
-
-            return True
+        return True
 
     def load_modalBasis(self, filename):
         """
@@ -470,7 +454,7 @@ class InteractionMatrixHandler:
         Parameters
         ----------
         filename : str
-            File path without .fits extension.
+            File path without .h5 extension.
 
         Returns
         -------
@@ -481,43 +465,52 @@ class InteractionMatrixHandler:
         if self.dm_scanned_list is None:
             self.logger.error('InteractionMatrixHandler::load_modalBasis - The class has not been initialize, the dm_scanned_list is None.')
             raise ValueError('The class has not been initialize, the dm_scanned_list is None.')
-        # Read the file
-        with fits.open(filename + '.fits') as hdul:
-            
-            # Check the parameters:
-            if hdul[0].header['nDMs'] == len(self.dm_scanned_list):
-                nDMs = hdul[0].header['nDMs']
+        
+        if not filename.endswith('.h5'):
+            filename += '.h5' # add extension
+        
+        with h5py.File(filename, 'r') as f:
+            # First, check if the modal basis is compatible with the DMs
+            # Check modal basis
+            if len(f.keys()) == len(self.modal_list):
+                for i in self.modal_list:
+                    if i not in f.keys():
+                        self.logger.error(f'InteractionMatrixHandler::load_modalBasis - Modal base {i} is not in the file.')
+                        raise ValueError('InteractionMatrixHandler::load_modalBasis - Modal base is not in the file.')
             else:
-                raise ValueError('InteractionMatrixHandler::load_modalBasis - Number of DMs of the file does not match the current setup.')
-            
-            # Now, check the valid actuators of the DMs
-
-            for i in range(nDMs):
-                if (hdul[0].header['DM' + str(i) + 'vAct'] != self.dm_scanned_list[i].nValidAct):
-                    raise ValueError('InteractionMatrixHandler::load_modalBasis - stored DM valid acts do not match current simulation.')         
-                
-            # Verification passed, so we can use the class properties from now on
+                self.logger.error(f'InteractionMatrixHandler::load_modalBasis - The number of modal basis {len(self.modal_list)} \
+                                  is not consist with the file content {len(f.keys())}.')
+                raise ValueError('InteractionMatrixHandler::load_modalBasis - Modal base is not in the file.')    
+            # Create the modal basis list
             self.modal_basis = []
-            self.modal_list = ['zonal', 'zernike', 'kl', 'hadamard', 'DH']
-            modal_basis_dict = dict.fromkeys(self.modal_list, None)
+            # Check DMs and load!
+            if len(f[self.modal_list[0]]) == len(self.dm_scanned_list):
+                for i in range(len(self.dm_scanned_list)):
+                    dm_name = 'DM' + str(self.dm_scanned_list[i].nValidAct)
 
-            # Create an empy list
-            for i in range(len(self.dm_scanned_list)):
-                self.modal_basis.append(modal_basis_dict.copy())
-            
-            # Fill the list with the fil content
-            modal_map = {'zo': 'zonal', 'ZO': 'zonal', 'ze': 'zernike', 'ZE': 'zernike',
-                    'kl': 'kl', 'KL': 'kl', 'dh': 'dh', 'DH': 'dh', 'ha': 'hadamard', 'HA': 'hadamard'}
+                    if dm_name in f[self.modal_list[0]].keys():
+                        if f[self.modal_list[0]][dm_name].attrs['nValidAct'] != self.dm_scanned_list[i].nValidAct:
+                            self.logger.error(f'InteractionMatrixHandler::load_modalBasis - The number of validActs is not consistent.')
+                            raise ValueError('InteractionMatrixHandler::load_modalBasis - The number of validActs is not consistent.')
 
-            for hdu in hdul[1:]:
-                name_parts = hdu.name.split('-')
-                i, modalBasis = int(name_parts[0]), name_parts[1]
+                        if f[self.modal_list[0]][dm_name].attrs['nAct'] != self.dm_scanned_list[i].nAct:
+                            self.logger.error(f'InteractionMatrixHandler::load_modalBasis - The number of acts is not consistent.')
+                            raise ValueError('InteractionMatrixHandler::load_modalBasis - The number of acts is not consistent.')  
+                        # The data is consistent, load it into the class
+                        tmp_dict = dict.fromkeys(self.modal_list)
 
-                self.modal_basis[i][modal_map[modalBasis]] = hdu.data
+                        for j in range(len(self.modal_list)):
+                            tmp_dict[self.modal_list[j]] = np.array(f[self.modal_list[j]][dm_name]['data'])
+                        
+                        self.modal_basis.append(tmp_dict)
+
+                    else:
+                        self.logger.error(f'InteractionMatrixHandler::load_modalBasis - Expected DM not found in the file.')
+                        raise ValueError('InteractionMatrixHandler::load_modalBasis - Expected DM not found in the file.')                           
                 
-            self.logger.info('InteractionMatrixHandler::load_modalBasis - Ended succesfully.')
+        self.logger.info('InteractionMatrixHandler::load_modalBasis - Ended succesfully.')
 
-            return True 
+        return True 
 
     def setup_logging(self, logging_level=logging.WARNING):
         #
