@@ -8,7 +8,7 @@ from SAOS.Asterism import Asterism
 
 import numpy as np
 from importlib.resources import files
-from astropy.io import fits
+import h5py
 
 import logging
 import logging.handlers
@@ -27,7 +27,7 @@ class ExtendedSource(Source):
                  fov=10,
                  altitude:float = np.inf,
                  img_path="",
-                 img_PS=1/60,
+                 img_PS=None,
                  nSubDirs=1,
                  maxnSubDirs=7,
                  patch_padding=5,
@@ -47,9 +47,9 @@ class ExtendedSource(Source):
         altitude : float, optional
             Altitude of the source in meters. Default is infinity.
         img_path : str, optional
-            Path to the FITS image of the source (e.g., solar image).
+            Path to the H5 image of the source (e.g., solar image).
         img_PS : float, optional
-            Plate scale in arcsec/pixel, by default 1/60.
+            Plate scale in arcsec/pixel, by default None to use the metadata of the image.
         nSubDirs : int, optional
             Number of sub-directions across the extended source.
         maxnSubDirs : int, optional
@@ -60,7 +60,7 @@ class ExtendedSource(Source):
             Margin added to avoid boundary effects.
         logger : logging.Logger, optional
             Optional logger instance.
-        """        
+        """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
             self.queue_listerner = self.setup_logging()
@@ -73,27 +73,38 @@ class ExtendedSource(Source):
         self.is_initialized = False
         tmp = self.photometry(optBand)
         
-        tmp             = self.photometry(optBand)              # get the photometry properties
-        self.optBand    = optBand                               # optical band
-        self.wavelength = tmp[0]                                # wavelength in m
-        self.bandwidth  = tmp[1]                                # optical bandwidth
-        self.nPhoton    =  tmp[2]                               # photon per m2 per s
-        self.fluxMap    = []                                    # 2D flux map of the source
-        self.tag        = 'sun'                                 # tag of the object
-        self.altitude = altitude                                # altitude of the source object in m    
-        self.coordinates = coordinates                          # polar coordinates [r,theta] 
-        self.fov = fov                                          # Field of View in arcsec of the patch selected
-        self.img_path = img_path                                # Sun pattern that shall be uploaded, expected FITS file.
-        self.img_PS = img_PS                                    # Plate Scale in "/px of the input image, default matches the default img_path PS
-        self.nSubDirs = nSubDirs                                # Number of sub-directions taken from the sun image to build the inner aberration of the pupil in the image
-        self.patch_padding = patch_padding                      # Padding outside the subaperture FoV in arcsec.
-        self.subDir_margin = subDir_margin                                # Extra margin to the subDirs size to avoid border effects [arcsec]
+        tmp                = self.photometry(optBand)              # get the photometry properties
+        self.optBand       = optBand                               # optical band
+        self.wavelength    = tmp[0]                                # wavelength in m
+        self.bandwidth     = tmp[1]                                # optical bandwidth
+        self.nPhoton       =  tmp[2]                               # photon per m2 per s
+        self.fluxMap       = []                                    # 2D flux map of the source
+        self.tag           = 'sun'                                 # tag of the object
+        self.altitude      = altitude                              # altitude of the source object in m    
+        self.coordinates   = coordinates                           # polar coordinates [r,theta] 
+        self.fov           = fov                                   # Field of View in arcsec of the patch selected
+        self.img_path      = img_path                              # Sun pattern that shall be uploaded, expected h5 file.
+        self.img_PS        = img_PS                                # Plate Scale in "/px of the input image, default matches the default img_path PS
+        self.nSubDirs      = nSubDirs                              # Number of sub-directions taken from the sun image to build the inner aberration of the pupil in the image
+        self.patch_padding = patch_padding                         # Padding outside the subaperture FoV in arcsec.
+        self.subDir_margin = subDir_margin                         # Extra margin to the subDirs size to avoid border effects [arcsec]
 
         self.type     = 'SUN'
 
         if self.img_path == "":
             images_dir = files('SAOS.images')
-            self.img_path = images_dir / 'imsol.fits'
+            if self.wavelength == 500e-9:
+                self.img_path = images_dir / 'cont_500nm.h5'
+            elif self.wavelength == 680e-9:
+                self.img_path = images_dir / 'cont_680nm.h5'
+            else:
+                self.img_path = images_dir / 'cont_500nm.h5'
+                self.logger.warning('ExtendedSource::__init__ - There is no sun image for this wavelength. Applying solar continuum at 500nm.')
+        
+        # Convert image path to String
+
+        self.img_path = str(self.img_path)
+
            
         self.sun_nopad, self.sun_padded = self.load_sun_img()   # Take sun patch, pad + no pad
 
@@ -219,11 +230,15 @@ class ExtendedSource(Source):
             (unpadded image patch, padded image patch)
         """
         self.logger.debug('ExtendedSource::load_sun_img')
-        try:
-            tmp_sun = fits.open(self.img_path)[0].data.astype('<f4')
-        except:
-            self.logger.error('ExtendedSource::load_sun_img - Error loading the FITS file')
-            raise FileExistsError('Error loading the FITS file')
+
+        if not self.img_path.endswith(".h5"):
+            self.img_path += ".h5"
+
+        with h5py.File(self.img_path, 'r') as f:
+            tmp_sun = np.array(f['image']['data'])
+            if self.img_PS is None:
+                self.img_PS = f['image'].attrs['resolution']
+
         cnt_x_arc = self.coordinates[0] * np.cos(np.deg2rad(self.coordinates[1]))
         cnt_y_arc = self.coordinates[0] * np.sin(np.deg2rad(self.coordinates[1]))
 
