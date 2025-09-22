@@ -274,7 +274,7 @@ class Savepoint:
                 # Get median filtered image
                 filter = np.ones((3,3))
                 filter /= np.prod(filter.shape)
-                med = signal.convolve2d(data, filter, mode='same', boundary='symm')
+                med = signal.convolve2d(np.squeeze(data), filter, mode='same', boundary='symm')
                 # Create Gradient filters
                 kx = np.array(([-3, 0, 3], [-10, 0, 10], [-3, 0, 3]))
                 ky = np.rot90(kx)
@@ -282,8 +282,8 @@ class Savepoint:
                 kx_med = signal.convolve2d(med, kx, mode='same', boundary='symm')
                 ky_med = signal.convolve2d(med, ky, mode='same', boundary='symm')
                 # Compute gradient of the original image
-                kx_img = signal.convolve2d(data, kx, mode='same', boundary='symm')
-                ky_img = signal.convolve2d(data, ky, mode='same', boundary='symm')
+                kx_img = signal.convolve2d(np.squeeze(data), kx, mode='same', boundary='symm')
+                ky_img = signal.convolve2d(np.squeeze(data), ky, mode='same', boundary='symm')
                 # combine gradients
                 g_img = np.sum(np.sqrt(kx_img**2 + ky_img**2))
                 g_med = np.sum(np.sqrt(kx_med**2 + ky_med**2))
@@ -294,7 +294,7 @@ class Savepoint:
                 if denominator < 1e-9:
                    dict_stats['MFGS'] = np.array([0.0])
                 else:                   
-                    dict_stats['MFGS'] = numerator / denominator                                                  
+                    dict_stats['MFGS'] = np.array([numerator / denominator])                                                  
             else:
                  ideal_psf = lp.sci.fake_src_dict[str(int(lp.src.wavelength*1e9))]
                  
