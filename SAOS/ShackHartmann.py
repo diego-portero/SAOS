@@ -70,8 +70,6 @@ class ShackHartmann:
             Extra FoV in [arcsec] that is taken for the FFT computation, in order to reduce wrapping effects.
         use_brightest : int, optional
             Picks the n brightest pixels as threshold for center-of-gravity spot detection.
-        is_geometric : bool, optional
-            Enable geometric mode (gradient-based measurement).
         threshold_convolution : float, optional
             Cut-off threshold for Gaussian convolution.
         unit_in_rad : bool, optional
@@ -601,47 +599,6 @@ class ShackHartmann:
                     index_valid += 1
 
         return subaps
-        
-    #%% GEOMETRIC    
-         
-    def gradient_2D(self,arr):
-        """
-        Compute X and Y gradients of a phase screen.
-
-        Parameters
-        ----------
-        arr : np.ndarray
-            2D array of phase values.
-
-        Returns
-        -------
-        tuple
-            Gradient in X and Y.
-        """
-        res_x = (np.gradient(arr,axis=0)/self.telescope.pixelSize)*self.telescope.pupil
-        res_y = (np.gradient(arr,axis=1)/self.telescope.pixelSize)*self.telescope.pupil
-        return res_x,res_y
-        
-    def lenslet_propagation_geometric(self,arr):
-        """
-        Compute geometric propagation through lenslets.
-
-        Parameters
-        ----------
-        arr : np.ndarray
-            Input phase screen.
-
-        Returns
-        -------
-        np.ndarray
-            Concatenated slope vector.
-        """        
-        [SLx,SLy]  = self.gradient_2D(arr)
-        
-        sy = (bin_ndarray(SLx, [self.nSubap,self.nSubap], operation='sum'))
-        sx = (bin_ndarray(SLy, [self.nSubap,self.nSubap], operation='sum'))
-        
-        return np.concatenate((sx,sy))
             
     #%% LGS
     def get_convolution_spot(self, src): 
