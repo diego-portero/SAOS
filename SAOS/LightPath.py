@@ -191,6 +191,7 @@ class LightPath:
         # Combine the OPD before reaching the WFS
 
         self.wfs_opd = self.atmosphere_opd + np.sum(self.dm_opd, axis=0) # Note that for the IM measuring, atmosphere_opd is 0
+        self.wfs_opd *= self.tel.pupil # apply pupil mask to the OPD
 
         self.wfs_phase = self.wfs_opd * (2 * np.pi /self.src.wavelength)
 
@@ -202,6 +203,7 @@ class LightPath:
         # TODO: NCPA class must be upgrade to match the new scheme. It shall return a phase in the pupil plane using the projection of the src as the DMs
         if self.ncpa is not None:
             self.sci_opd = self.wfs_opd + self.ncpa_opd
+            self.sci_opd *= self.tel.pupil # apply pupil mask to the OPD
         else:
             self.sci_opd = np.copy(self.wfs_opd)
         
