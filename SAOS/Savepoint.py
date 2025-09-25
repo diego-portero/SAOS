@@ -133,14 +133,14 @@ class Savepoint:
                 dm_phase_grp = group.create_group('dm_phase_' + str(i))
                 self.custom_create_dataset('phase', dm_phase_grp, iteration, data_group.dm_phase[i], mask)
 
-        if self.slopes and group_name.find('LightPath')>=0:
+        if self.slopes and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
             # Create group and add the datasets with the statistics ( mask is not needed)
             slopes1d_grp = group.create_group('slopes_1D')
             self.custom_create_dataset('slopes_1D', slopes1d_grp, iteration, data_group.slopes_1D, mask=None)
             slopes2d_grp = group.create_group('slopes_2D')
             self.custom_create_dataset('slopes_2D', slopes2d_grp, iteration, data_group.slopes_2D, mask=None)
 
-        if self.wfs and group_name.find('LightPath')>=0:
+        if self.wfs and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
             # Pupil mask to compute statistics
             mask = data_group.tel.pupil[None, ...]
             # Create group and add the datasets with the statistics
@@ -149,7 +149,7 @@ class Savepoint:
             wfs_phase_grp = group.create_group('wfs_phase')
             self.custom_create_dataset('phase', wfs_phase_grp, iteration, data_group.wfs_phase, mask)
 
-        if self.sci and group_name.find('LightPath')>=0:
+        if self.sci and group_name.find('LightPath')>=0 and (data_group.sci is not None):
             # Pupil mask to compute statistics
             mask = data_group.tel.pupil[None, ...]
             # Create group and add the datasets with the statistics
@@ -158,12 +158,12 @@ class Savepoint:
             sci_phase_grp = group.create_group('sci_phase')
             self.custom_create_dataset('phase', sci_phase_grp, iteration, data_group.sci_phase, mask)
 
-        if self.wfs_frame and group_name.find('LightPath')>=0:
+        if self.wfs_frame and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
             # Create group and add the datasets with the statistics ( mask is not needed)
             wfs_frame_grp = group.create_group('wfs_frame')
             self.custom_create_dataset('wfs_frame', wfs_frame_grp, iteration, data_group.wfs_frame, mask=None)
 
-        if self.sci_frame and group_name.find('LightPath')>=0:
+        if self.sci_frame and group_name.find('LightPath')>=0 and (data_group.sci is not None):
             # Create group and add the datasets with the statistics ( mask is not needed)
             sci_frame_grp = group.create_group('sci_frame')
             self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, data_group.sci_frame, None, data_group)
@@ -411,33 +411,33 @@ class Savepoint:
                                 self.append_to_dataset('phase', grp, iteration, lp.dm_phase[i], lp)
 
                         # Slopes
-                        if self.slopes and ((iteration+1)%self.slopes) == 0:
+                        if self.slopes and ((iteration+1)%self.slopes) == 0 and (lp.wfs is not None):
                             grp = group['slopes_1D']
                             self.append_to_dataset('slopes_1D', grp, iteration, lp.slopes_1D, lp)
                             grp = group['slopes_2D']
                             self.append_to_dataset('slopes_2D', grp, iteration, lp.slopes_2D, lp)
 
                         # WFS
-                        if self.wfs and ((iteration+1)%self.wfs) == 0:
+                        if self.wfs and ((iteration+1)%self.wfs) == 0 and (lp.wfs is not None):
                             grp = group['wfs_opd']
                             self.append_to_dataset('opd', grp, iteration, lp.wfs_opd, lp)
                             grp = group['wfs_phase']
                             self.append_to_dataset('phase', grp, iteration, lp.wfs_phase, lp)
 
                         # Science
-                        if self.sci and ((iteration+1)%self.sci) == 0:
+                        if self.sci and ((iteration+1)%self.sci) == 0 and (lp.wfs is not None):
                             grp = group['sci_opd']
                             self.append_to_dataset('opd', grp, iteration, lp.sci_opd, lp)
                             grp = group['sci_phase']
                             self.append_to_dataset('phase', grp, iteration, lp.sci_phase, lp)
 
                         # WFS Frame
-                        if self.wfs_frame and ((iteration+1)%self.wfs_frame) == 0:
+                        if self.wfs_frame and ((iteration+1)%self.wfs_frame) == 0 and (lp.wfs is not None):
                             grp = group['wfs_frame']
                             self.append_to_dataset('wfs_frame', grp, iteration, lp.wfs_frame, lp)
 
                         # Science Frame
-                        if self.sci_frame and ((iteration+1)%self.sci_frame) == 0:
+                        if self.sci_frame and ((iteration+1)%self.sci_frame) == 0 and (lp.wfs is not None):
                             grp = group['sci_frame']
                             self.append_to_dataset('sci_frame', grp, iteration, lp.sci_frame, lp)
 

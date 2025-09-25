@@ -83,7 +83,7 @@ class InteractionMatrixHandler:
 
         for i in range(len(light_path_list)):
             tmp_dm_light_path_relation = []
-            if hasattr(light_path_list[i], 'dm') and hasattr(light_path_list[i], 'wfs'):
+            if hasattr(light_path_list[i], 'dm') and (light_path_list[i].wfs is not None):
                 if len(self.dm_scanned_list) == 0:
                     for j in range(len(light_path_list[i].dm)):
                         # There are no DMs defined, so add a new one to our list!
@@ -115,14 +115,15 @@ class InteractionMatrixHandler:
             im_scan_plan.append(tmp_dm_light_path_relation)
 
 
-        # Create a boolean matrix of size: nLightPaths x nDMs in which True implies that there is a relation and an interaction matrix must be defined
+        # Create a boolean matrix of size: nLightPaths x nDMs in which True implies that there is a relation between a DM and a WFs in the specified light path
+        # and an interaction matrix must be defined
 
         self.im_boolean_matrix = np.zeros((len(light_path_list), len(self.dm_scanned_list)), dtype=bool)
 
         for i in range(len(im_scan_plan)):
-            if len(im_scan_plan[i]) > 0:
+            if len(im_scan_plan[i]):
                 for j in range(len(im_scan_plan[i])):
-                    self.im_boolean_matrix[i, im_scan_plan[i][j]] = True
+                        self.im_boolean_matrix[i, im_scan_plan[i][j]] = True
 
         # Finally, store the list of light paths to have it available for the measurement process.
         self.light_path_list = light_path_list
