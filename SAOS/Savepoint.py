@@ -425,7 +425,7 @@ class Savepoint:
                             self.append_to_dataset('phase', grp, iteration, lp.wfs_phase, lp)
 
                         # Science
-                        if self.sci and ((iteration+1)%self.sci) == 0 and (lp.wfs is not None):
+                        if self.sci and ((iteration+1)%self.sci) == 0 and (lp.sci is not None):
                             grp = group['sci_opd']
                             self.append_to_dataset('opd', grp, iteration, lp.sci_opd, lp)
                             grp = group['sci_phase']
@@ -437,7 +437,7 @@ class Savepoint:
                             self.append_to_dataset('wfs_frame', grp, iteration, lp.wfs_frame, lp)
 
                         # Science Frame
-                        if self.sci_frame and ((iteration+1)%self.sci_frame) == 0 and (lp.wfs is not None):
+                        if self.sci_frame and ((iteration+1)%self.sci_frame) == 0 and (lp.sci is not None):
                             grp = group['sci_frame']
                             self.append_to_dataset('sci_frame', grp, iteration, lp.sci_frame, lp)
 
