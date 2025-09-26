@@ -19,8 +19,8 @@ This module contains the `ReceptionPoint` class, used to ask for specific buffer
 
 class ReceptionPoint:
     def __init__(self, logger=None, 
-                 port=7000, 
-                 ip="161.72.210.177", 
+                 port=7001, 
+                 ip="localhost", 
                  protocol="tcp", 
                  timeout=5000):
         """
@@ -120,7 +120,7 @@ class ReceptionPoint:
                     if self.poller.poll(timeout=self.timeout):
                         data = self.socket.recv()
                         response = pickle.loads(data)
-                        self.logger.info("ReceptionPoint::sendRequest - loop_cmd answer received ")
+                        self.logger.debug("ReceptionPoint::sendRequest - loop_cmd answer received ")
                         result = int(response["desired_state"] )  # 0/1
                         self.actual_loop_state = result
                         self.logger.debug(f"ReceptionPoint::sendRequest - desired_state: {self.actual_loop_state}")
