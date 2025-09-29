@@ -317,7 +317,7 @@ class ScienceCam:
         psf = torch.fft.fftshift(psf, dim=(0, 1))
 
         # Compute normalized intensity
-        psf = torch.sqrt(psf.real**2 + psf.imag**2)
+        psf = torch.sqrt(psf.real**2 + psf.imag**2)**2
 
         # Normalize energy
         norma = torch.sum(psf)

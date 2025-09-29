@@ -516,7 +516,7 @@ class ShackHartmann:
         # Shift zero frequency to center
         psf = torch.fft.fftshift(psf, dim=(-2, -1))
         # Compute normalized intensity
-        psf = torch.sqrt(psf.real**2 + psf.imag **2)
+        psf = torch.sqrt(psf.real**2 + psf.imag **2)**2
         # Crop to desired region
         psf = psf[:, start:end, start:end].cpu().numpy()
         

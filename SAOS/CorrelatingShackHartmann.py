@@ -540,7 +540,7 @@ class CorrelatingShackHartmann:
         fft_res = torch.fft.fftshift(fft_res, dim=(-2, -1))
 
         # Compute normalized intensity
-        fft_res = torch.sqrt(fft_res.real**2 + fft_res.imag **2)
+        fft_res = torch.sqrt(fft_res.real**2 + fft_res.imag **2)**2
 
         # Normalize energy
         norma = torch.sum(fft_res[:, :, row_start:row_end, col_start:col_end], dim=(-2, -1), keepdim=True)
