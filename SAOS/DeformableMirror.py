@@ -103,6 +103,8 @@ class DeformableMirror:
             
             validActThreshpercentage : float, optional
                 Parameter to select a percentage of the actuator pitch to consider it valid o not.
+            maxStrokePtV : float, optional
+                Maximum mechanical stroke peak-to-valley in [m]. By default 10e-6 [m].
         """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
@@ -149,6 +151,7 @@ class DeformableMirror:
             self.misReg=misReg
 
         validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.7533)
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 10e-6) # [m]
         
         ## DM initialization
 
@@ -393,7 +396,29 @@ class DeformableMirror:
 
         output_phase = output_OPD * (2*np.pi / source.wavelength)       
 
-        return output_OPD, output_phase                     
+        return output_OPD, output_phase
+
+    # Saturate the actuation of the deformable mirror
+
+    def saturateShape(self, cmd):
+        """
+        Saturate the command of the mirror.
+
+        Parameters
+        ----------
+        cmd : np.ndarray
+            Command required from the mirror.
+
+        Returns
+        -------
+        cmd_saturated
+            Command executed by the mirror.
+        """
+        self.logger.debug('DeformableMirror::saturateShape') 
+
+        # The OPD is treated in the mulator as wavefront --> the PtV maximum is equivalent to the wavefront value
+        cmd_saturated = np.clip(cmd, a_min=-self.maxStrokePtV, a_max=self.maxStrokePtV)
+        return cmd_saturated
 
     # The shape of the mirror is controlled through a set of modes that by default are zonal --> defining a typical DM. 
     # If a modal DM is defined, then the coefficients correspond to those of the modal basis.
@@ -452,6 +477,9 @@ class DeformableMirror:
 
             with np.errstate(divide='ignore', invalid='ignore'):
                 self.dm_layer.OPD = np.where(self.gain_correction > 1e-5, self.dm_layer.OPD / self.gain_correction, 0)
+
+            # Saturate the actuation
+            self.dm_layer.OPD = self.saturateShape(self.dm_layer.OPD)
 
         else:
             self.logger.error('DeformableMirror::updateDMShape - Wrong value for the coefficients, only a 1D vector or a valid 2D matrix is expected.')    
