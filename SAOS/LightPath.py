@@ -219,6 +219,7 @@ class LightPath:
                 else:
                     if self.decimation_counter >= self.sci.long_exposure_delay:
                         self.long_exposure_frame += self.sci_frame
+                self.decimation_counter += 1
         
         return True
     
