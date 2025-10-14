@@ -301,7 +301,10 @@ class Savepoint:
             else:
                  ideal_psf = lp.sci.fake_src_dict[str(int(lp.src.wavelength*1e9))]
                  
-                 i_peak_norm = np.max(data) / np.sum(data)
+                 if np.sum(data) == 0:
+                     i_peak_norm = 0
+                 else:
+                     i_peak_norm = np.max(data) / np.sum(data)
                  i_peak_ideal_norm = np.max(ideal_psf) / np.sum(ideal_psf)
 
                  dict_stats['strehl'] = np.array([i_peak_norm / i_peak_ideal_norm ])
