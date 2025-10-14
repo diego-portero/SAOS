@@ -104,7 +104,7 @@ class DeformableMirror:
             validActThreshpercentage : float, optional
                 Parameter to select a percentage of the actuator pitch to consider it valid o not.
             maxStrokePtV : float, optional
-                Maximum mechanical stroke peak-to-valley in [m]. By default 10e-6 [m].
+                Maximum mechanical stroke peak-to-valley in [m]. By default 5e-6 [m].
         """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
@@ -151,7 +151,7 @@ class DeformableMirror:
             self.misReg=misReg
 
         validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.7533)
-        self.maxStrokePtV = kwargs.get('maxStrokePtV', 10e-6) # [m]
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 5e-6) # [m]
         
         ## DM initialization
 
