@@ -64,6 +64,7 @@ class LightPath:
         
         # Science variables
         self.sci_frame = None
+        self.long_exposure_frame = None
         self.decimation_counter = 0
 
     # An optical path is defiend, at least, by the source object emitting the light, the atmosphere and the telescope.
@@ -175,18 +176,18 @@ class LightPath:
 
             for i in range(len(opd_results)):
                 if i == 0 and parallel_atm and (not interaction_matrix):
-                    self.atmosphere_opd = opd_results[i]
+                    self.atmosphere_opd = opd_results[i].copy()
                     self.atmosphere_phase = self.atmosphere_opd * (2 * np.pi /self.src.wavelength)
                 else:
-                    self.dm_opd.append(opd_results[i][0])
-                    self.dm_phase.append(opd_results[i][1])
+                    self.dm_opd.append(opd_results[i][0].copy())
+                    self.dm_phase.append(opd_results[i][1].copy())
         else:
             # Compute the Atmosphere OPD and Phase
             opd_results = Parallel(n_jobs=len(tasks), prefer="threads")(tasks)
-            self.atmosphere_opd = opd_results[0]
+            self.atmosphere_opd = opd_results[0].copy()
             self.atmosphere_phase = self.atmosphere_opd * (2 * np.pi /self.src.wavelength)
-            self.dm_opd = np.zeros_like(self.atmosphere_opd)
-            self.dm_phase = np.copy(self.dm_opd)
+            self.dm_opd   = np.zeros_like(self.atmosphere_opd)
+            self.dm_phase = np.zeros_like(self.atmosphere_phase)
 
         # Combine the OPD before reaching the WFS
 
@@ -213,6 +214,11 @@ class LightPath:
         if self.sci is not None:
             if (self.decimation_counter % self.sci.decimation) == 0:
                 self.sci_frame = self.sci.get_frame(self.src, self.sci_phase)
+                if self.long_exposure_frame is None:
+                    self.long_exposure_frame = np.zeros_like(self.sci_frame)
+                else:
+                    if self.decimation_counter >= self.sci.long_exposure_delay:
+                        self.long_exposure_frame += self.sci_frame
         
         return True
     

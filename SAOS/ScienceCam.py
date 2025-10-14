@@ -34,6 +34,7 @@ class ScienceCam:
                  lightRatio:float=50,
                  integrationTime:float=None,
                  decimation:int=50,
+                 long_exposure_delay:int=5,
                  noiseFlag:bool=False,
                  logger=None,
                  **kwargs):
@@ -56,6 +57,9 @@ class ScienceCam:
             Integration time in seconds. Defaults to samplingTime.
         decimation : int, optional
             Decimation factor for storing results. Default is 50.
+        long_exposure_delay : int, optional
+            Delay in iterations to wait before starting to accumulate science images, by default 5.
+
         noiseFlag : bool, optional
             If True, the detector includes noise using the kwargs params/default config. By default, False.                 
         logger : logging.Logger, optional
@@ -94,11 +98,12 @@ class ScienceCam:
             self.external_logger_flag = True
             self.logger = logger    
 
-        self.fieldOfView      = fieldOfView
-        self.plate_scale      = plate_scale
-        self.samplingTime     = samplingTime
-        self.decimation       = decimation
-        self.lightRatio       = lightRatio
+        self.fieldOfView         = fieldOfView
+        self.plate_scale         = plate_scale
+        self.samplingTime        = samplingTime
+        self.decimation          = decimation
+        self.long_exposure_delay = long_exposure_delay
+        self.lightRatio          = lightRatio
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

@@ -165,8 +165,10 @@ class Savepoint:
 
         if self.sci_frame and group_name.find('LightPath')>=0 and (data_group.sci is not None):
             # Create group and add the datasets with the statistics ( mask is not needed)
-            sci_frame_grp = group.create_group('sci_frame')
+            sci_frame_grp = group.create_group('sci_frame_shortExp')
             self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, data_group.sci_frame, None, data_group)
+            sci_frame_grp = group.create_group('sci_frame_longExp')
+            self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, data_group.long_exposure_frame, None, data_group)            
 
     def custom_create_dataset(self, data_type, group, iteration, data, mask, lp=None):
         """
@@ -231,6 +233,7 @@ class Savepoint:
             'contrast': None,
             'MFGS': None,
             'strehl': None,
+            'longExpStrehl': None
         }
 
         if data_type == 'phase' or data_type == 'opd':
@@ -438,8 +441,10 @@ class Savepoint:
 
                         # Science Frame
                         if self.sci_frame and ((iteration+1)%self.sci_frame) == 0 and (lp.sci is not None):
-                            grp = group['sci_frame']
+                            grp = group['sci_frame_shortExp']
                             self.append_to_dataset('sci_frame', grp, iteration, lp.sci_frame, lp)
+                            grp = group['sci_frame_longExp']
+                            self.append_to_dataset('sci_frame', grp, iteration, lp.long_exposure_frame, lp)
 
     def setup_logging(self, logging_level=logging.WARNING):
         #
