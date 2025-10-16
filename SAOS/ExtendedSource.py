@@ -309,8 +309,8 @@ class ExtendedSource(Source):
                 corner_x = corner_x - self.subDir_margin/2
                 corner_y = corner_y - self.subDir_margin/2
                 # Convert to pixel coordinates
-                corner_x = np.round(corner_x/self.img_PS).astype(int)
-                corner_y = np.round(corner_y/self.img_PS).astype(int)
+                corner_x = np.floor(corner_x/self.img_PS).astype(int)
+                corner_y = np.floor(corner_y/self.img_PS).astype(int)
 
                 subDir_imgs[:,:,dirX,dirY] = self.sun_padded[corner_x : corner_x+subDir_width, corner_y : corner_y+subDir_width]
                 # Store the coordinates on-sky of the subDirs w.r.t optical axis
