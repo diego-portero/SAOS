@@ -151,7 +151,7 @@ class DeformableMirror:
             self.misReg=misReg
 
         validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.7533)
-        self.maxStrokePtV = kwargs.get('maxStrokePtV', 5e-6) # [m]
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 51e-6) # [m]
         
         ## DM initialization
 
