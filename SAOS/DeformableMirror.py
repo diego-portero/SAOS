@@ -176,7 +176,7 @@ class DeformableMirror:
             r = np.sqrt(self.xIF0**2 + self.yIF0**2)
             
             if valid_act_thresh_outer is None: 
-                valid_act_thresh_outer = self.dm_layer.D_fov/2+validActThreshpercentage*self.pitch
+                valid_act_thresh_outer = self.dm_layer.D_fov/2#+validActThreshpercentage*self.pitch
             
             self.validAct = r <= valid_act_thresh_outer
     
