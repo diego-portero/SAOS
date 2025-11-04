@@ -146,7 +146,7 @@ class DeformableMirror:
         
         if misReg is None:
             # create a MisReg object to store the different mis-registration
-            self.misReg = MisRegistration()
+            self.misReg = MisRegistration(0,0,0,1,telescope=telescope, logger=self.logger)
         else:
             self.misReg=misReg
 
@@ -206,30 +206,18 @@ class DeformableMirror:
             
         #  INFLUENCE FUNCTIONS COMPUTATION
         #  initial coordinates
-        xIF0 = self.xIF0[self.validAct]
-        yIF0 = self.yIF0[self.validAct]
-
-        # anamorphosis
-        xIF3, yIF3 = self.anamorphosis(xIF0, yIF0, self.misReg.anamorphosisAngle*np.pi/180, self.misReg.tangentialScaling, self.misReg.radialScaling)
         
-        # rotation
-        xIF4, yIF4 = self.rotateDM(xIF3, yIF3, self.misReg.rotationAngle*np.pi/180)
-        
-        # shifts
-        xIF = xIF4 - self.misReg.shiftX
-        yIF = yIF4 - self.misReg.shiftY
-        
-        self.xIF = xIF
-        self.yIF = yIF
+        self.xIF = self.xIF0[self.validAct]
+        self.yIF = self.yIF0[self.validAct]
 
         # corresponding coordinates on the pixel grid
-        u0x      = self.validAct_2D.shape[0] /2 + xIF*self.validAct_2D.shape[0] /self.dm_layer.D_fov
-        u0y      = self.validAct_2D.shape[0] /2 + yIF*self.validAct_2D.shape[0] /self.dm_layer.D_fov      
-        self.nIF = len(xIF)
+        u0x      = self.validAct_2D.shape[0] /2 + self.xIF*self.validAct_2D.shape[0] /self.dm_layer.D_fov
+        u0y      = self.validAct_2D.shape[0] /2 + self.yIF*self.validAct_2D.shape[0] /self.dm_layer.D_fov      
+        self.nIF = len(self.xIF)
         # store the coordinates
         self.coordinates        = np.zeros([self.nIF, 2])
-        self.coordinates[:,0]   = xIF
-        self.coordinates[:,1]   = yIF
+        self.coordinates[:,0]   = self.xIF
+        self.coordinates[:,1]   = self.yIF
 
         # If the Influence Functions are not provided, the DM must generate them:
         if self.isCustom==False:
@@ -367,9 +355,11 @@ class DeformableMirror:
         self.logger.debug('DeformableMirror::get_dm_opd')
         # Get the pupil for the object. For the case of the sun, only the central subdir is considered.
         pupil = self.get_dm_pupil(source) 
+        # Apply mis-registration
+        opd_misregistered = self.misReg.apply_misreg(self.dm_layer.OPD)
         # Select only the region of the DM that is affecting to the source.
         OPD = np.zeros([self.dm_layer.telescope_resolution, self.dm_layer.telescope_resolution])
-        OPD = self.dm_layer.OPD[pupil==1].reshape(self.dm_layer.telescope_resolution, self.dm_layer.telescope_resolution)
+        OPD = opd_misregistered[pupil==1].reshape(self.dm_layer.telescope_resolution, self.dm_layer.telescope_resolution)
         # Depending on the source type, certain action may differ
         if source.tag == 'LGS':
             # This code considers the impact of having an object at a finite altitude (typ. LGS). 
@@ -487,58 +477,16 @@ class DeformableMirror:
 
         return True
     
-    def rotateDM(self,x,y,angle):
+    def updateMisreg(self, elapsedTime):
         """
-        Rotate coordinates of the DM actuators.
-
-        Parameters
-        ----------
-        x : np.ndarray
-            X coordinates.
-        y : np.ndarray
-            Y coordinates.
-        angle : float
-            Rotation angle in radians.
-
+        Update the mis-registration params by the temporal factor
         Returns
-        -------
-        tuple
-            Rotated x and y arrays.
+        --------
+        True
         """
-        self.logger.debug('DeformableMirror::rotateDM')
-        xOut =   x*np.cos(angle)-y*np.sin(angle)
-        yOut =   y*np.cos(angle)+x*np.sin(angle)
-        return xOut,yOut
+        self.misReg.update_params(elapsedTime)
 
-    def anamorphosis(self,x,y,angle,mRad,mNorm):
-        """
-        Apply anamorphic transformation to actuator coordinates.
-
-        Parameters
-        ----------
-        x : np.ndarray
-            X coordinates.
-        y : np.ndarray
-            Y coordinates.
-        angle : float
-            Rotation angle in radians.
-        mRad : float
-            Radial scaling.
-        mNorm : float
-            Tangential scaling.
-
-        Returns
-        -------
-        tuple
-            Transformed x and y coordinates.
-        """
-        self.logger.debug('DeformableMirror::anamorphosis')
-        mRad  += 1
-        mNorm += 1
-        xOut   = x * (mRad*np.cos(angle)**2  + mNorm* np.sin(angle)**2)  +  y * (mNorm*np.sin(2*angle)/2  - mRad*np.sin(2*angle)/2)
-        yOut   = y * (mRad*np.sin(angle)**2  + mNorm* np.cos(angle)**2)  +  x * (mNorm*np.sin(2*angle)/2  - mRad*np.sin(2*angle)/2)
-    
-        return xOut,yOut
+        return True
         
     def modesComputation(self,i,j):
         """
@@ -560,19 +508,17 @@ class DeformableMirror:
         x0 = i
         y0 = j
         cx = (1+self.misReg.radialScaling)*(self.validAct_2D.shape[0] /self.nAct)/np.sqrt(2*np.log(1./self.mechCoupling))
-        cy = (1+self.misReg.tangentialScaling)*(self.validAct_2D.shape[0] /self.nAct)/np.sqrt(2*np.log(1./self.mechCoupling))
+        cy = (1+self.misReg.radialScaling)*(self.validAct_2D.shape[0] /self.nAct)/np.sqrt(2*np.log(1./self.mechCoupling))
 
         # Radial direction of the anamorphosis
-        theta  = self.misReg.anamorphosisAngle*np.pi/180
         x      = np.linspace(0,1,self.validAct_2D.shape[0] )*self.validAct_2D.shape[0] 
         X,Y    = np.meshgrid(x,x)
     
         # Compute the 2D Gaussian coefficients
-        a = np.cos(theta)**2/(2*cx**2)  +  np.sin(theta)**2/(2*cy**2)
-        b = -np.sin(2*theta)/(4*cx**2)   +  np.sin(2*theta)/(4*cy**2)
-        c = np.sin(theta)**2/(2*cx**2)  +  np.cos(theta)**2/(2*cy**2)
+        a = 1/(2*cx**2)  
+        c = 1/(2*cy**2)
     
-        G = self.sign * np.exp(-(a*(X-x0)**2 +2*b*(X-x0)*(Y-y0) + c*(Y-y0)**2)/(self.validAct_2D.shape[0]/self.nAct))
+        G = self.sign * np.exp(-(a*(X-x0)**2 + c*(Y-y0)**2)/(self.validAct_2D.shape[0]/self.nAct))
         
         if self.flip_lr:
             G = np.fliplr(G)
