@@ -4,11 +4,17 @@ Created on Fri Jun 26 14:01:10 2020
 
 @author: cheritie
 
-Minor update Marh 24 2025
+Major update Oct 23 2025
 @author: nrodlin
 """
+import numpy as np
 
-import inspect
+import logging
+import logging.handlers
+from queue import Queue
+
+import scipy as sp
+import cv2
 
 """
 Misregistration Module
@@ -18,305 +24,124 @@ This module contains the `Misresgistration` class, used for modeling the DM misr
 """
 
 class MisRegistration:
-    def __init__(self,param=None):
+    def __init__(self,
+                 shiftX:float,
+                 shiftY:float,
+                 rotation:float,
+                 radialScaling:float,
+                 telescope,
+                 logger=None,
+                 **kwargs):
         """
         Initialize the MisRegistration object, which defines misalignments of an optical element.
 
         Parameters
         ----------
-        param : dict or MisRegistration, optional
-            Dictionary or another MisRegistration object defining the initial misregistration values.
+        shiftX : float
+            Displacement in X axis (left-right) w.r.t optical center [meters]
+        shiftY : float
+            Displacement in Y axis (top-bottom) w.r.t optical center [meters]
+        rotation : float
+            Rotation along optical axis [degres]
+        radialScaling : float
+            Pupil radial scaling. Larger than 1 is magnification. [adimensional]
+        logger : logging.Logger, optional
+            Logger instance for diagnostics.
+        **kwargs : dict, optional
+            Additional keyword arguments.
+            vx : float, optional
+                X axis displacement speed [m/s].
+            vy : float, optional
+                Y axis displacement speed [m/s].
+            wz : float, optional
+                Rotation speed along optical [degree/s]. 
         """        
         self.tag                  = 'misRegistration' 
-        self.isInitialized = False  
-
-        if param is None:
-            self.rotationAngle        = 0                    # rotation angle in degrees
-            self.shiftX               = 0                           # shift X in m
-            self.shiftY               = 0                           # shift Y in m
-            self.anamorphosisAngle    = 0                # amamorphosis angle in degrees
-            self.tangentialScaling    = 0                # normal scaling in % of diameter
-            self.radialScaling        = 0                    # radial scaling in % of diameter
-        else:              
-            if isinstance(param,dict):
-                # print('MisRegistration object created from a ditionnary')
-                self.rotationAngle        = param['rotationAngle']                    # rotation angle in degrees
-                self.shiftX               = param['shiftX']                           # shift X in m
-                self.shiftY               = param['shiftY']                           # shift Y in m
-                self.anamorphosisAngle    = param['anamorphosisAngle']                # amamorphosis angle in degrees
-                self.tangentialScaling    = param['tangentialScaling']                # normal scaling in % of diameter
-                self.radialScaling        = param['radialScaling']                    # radial scaling in % of diameter
-            else:
-                if  inspect.isclass(type(param)):
-                    if param.tag == 'misRegistration':
-                        # print('MisRegistration object created from an existing Misregistration object')
-
-                        self.rotationAngle        = param.rotationAngle                   # rotation angle in degrees
-                        self.shiftX               = param.shiftX                           # shift X in m
-                        self.shiftY               = param.shiftY                           # shift Y in m
-                        self.anamorphosisAngle    = param.anamorphosisAngle                # amamorphosis angle in degrees
-                        self.tangentialScaling    = param.tangentialScaling                # normal scaling in % of diameter
-                        self.radialScaling        = param.radialScaling  
-                    else:
-                        print('wrong type of object passed to a MisRegistration object')
-                else:
-                    print('wrong type of object passed to a MisRegistration object')
-                    
-                
-                
-        if self.radialScaling ==0 and self.tangentialScaling ==0:
-            self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)            +'_'\
-                              'sX_'         + str('%.2f' %(self.shiftX))                 +'_m_'\
-                              'sY_'         + str('%.2f' %(self.shiftY))                 +'_m_'\
-                              'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                              'mR_'    + str('%.2f' %(self.radialScaling+1.))       +'_'\
-                              'mT_'   + str('%.2f' %(self.tangentialScaling+1.)) 
+        if logger is None:
+            self.queue_listerner = self.setup_logging()
+            self.logger = logging.getLogger()
+            self.external_logger_flag = False
         else:
-             self.misRegName = 'rot_'       + str('%.2f' %self.rotationAngle)            +'_'\
-                          'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                          'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                          'anam_'      + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                          'mR_'        + str('%.4f' %(self.radialScaling+1.))       +'_'\
-                          'mT_'       + str('%.4f' %(self.tangentialScaling+1.)) 
-                            
-        self.isInitialized = True
+            self.external_logger_flag = True
+            self.logger = logger        
 
-#        mis-registrations can be added or sub-tracted using + and -       
-    def __add__(self,misRegObject):
-        """
-        Combine two MisRegistration objects by summing their parameters.
+        self.shiftX = shiftX
+        self.shiftY = shiftY
+        self.rotation = rotation
+        self.radialScaling = radialScaling
+        self.spatialSampling = telescope.pixelSize
 
-        Parameters
-        ----------
-        misRegObject : MisRegistration
-            Another misregistration instance.
+        self.vx = kwargs.get('vx', 0.0)
+        self.vy = kwargs.get('vy', 0.0)
+        self.wz = kwargs.get('wz', 0.0)
+        
 
-        Returns
-        -------
-        MisRegistration
-            Resulting combined misregistration.
-        """
-        if misRegObject.tag == 'misRegistration':
-            tmp = MisRegistration()
-            tmp.rotationAngle        = self.rotationAngle       + misRegObject.rotationAngle
-            tmp.shiftX               = self.shiftX              + misRegObject.shiftX
-            tmp.shiftY               = self.shiftY              + misRegObject.shiftY
-            tmp.anamorphosisAngle    = self.anamorphosisAngle   + misRegObject.anamorphosisAngle
-            tmp.tangentialScaling    = self.tangentialScaling   + misRegObject.tangentialScaling
-            tmp.radialScaling        = self.radialScaling       + misRegObject.radialScaling       
-        else:
-            print('Error you are trying to combine a MisRegistration Object with the wrong type of object')
-        return tmp
+    def update_params(self, elapsedTime):
+        
+        self.shiftX   += self.vx * elapsedTime
+        self.shiftY   += self.vy * elapsedTime
+        self.rotation += self.wz * elapsedTime
+
+    def set_params(self, shiftX, shiftY, rotation, radialScaling, vx=None, vy=None, wz=None):
+        self.shiftX = shiftX
+        self.shiftY = shiftY
+        self.rotation = rotation
+        self.radialScaling = radialScaling
+
+        if vx is not None:
+            self.vx = vx
+        if vy is not None:
+            self.vy = vy
+        if wz is not None:
+            self.wz = wz
+
     
-    def __sub__(self,misRegObject):
-        """
-        Subtract the misregistration parameters of another object.
+    def apply_misreg(self, input_buffer):
 
-        Parameters
-        ----------
-        misRegObject : MisRegistration
-            Another misregistration instance.
+        temp_buffer = np.copy(input_buffer)
+        if self.radialScaling != 1:
+            # Apply magnification
+            scalingMatrix = cv2.getRotationMatrix2D((input_buffer.shape[1]/2,input_buffer.shape[0]/2), 0, self.radialScaling)
+            temp_buffer = cv2.warpAffine(input_buffer, scalingMatrix, (input_buffer.shape[1], input_buffer.shape[0]))
 
-        Returns
-        -------
-        MisRegistration
-            Resulting differential misregistration.
-        """
-        if misRegObject.tag == 'misRegistration':
-            tmp = MisRegistration()
-            
-            tmp.rotationAngle        = self.rotationAngle       - misRegObject.rotationAngle
-            tmp.shiftX               = self.shiftX              - misRegObject.shiftX
-            tmp.shiftY               = self.shiftY              - misRegObject.shiftY
-            tmp.anamorphosisAngle    = self.anamorphosisAngle   - misRegObject.anamorphosisAngle
-            tmp.tangentialScaling    = self.tangentialScaling   - misRegObject.tangentialScaling
-            tmp.radialScaling        = self.radialScaling       - misRegObject.radialScaling
-        else:
-            print('Error you are trying to combine a MisRegistration Object with the wrong type of object')
-        return tmp
+        if self.rotation != 0:
+            # Apply rotation
+            temp_buffer = sp.ndimage.rotate(temp_buffer, self.rotation, reshape=False)
+
+        # Apply shift
+        if self.shiftX != 0 or self.shiftY != 0:
+            translationMatrix = np.float32([[1, 0, self.shiftX/self.spatialSampling], [0, 1, self.shiftY/self.spatialSampling]])
+            temp_buffer = cv2.warpAffine(temp_buffer, translationMatrix, (temp_buffer.shape[0], temp_buffer.shape[1]), 
+                                        flags=cv2.INTER_LINEAR, 
+                                        borderMode=cv2.BORDER_CONSTANT)
+
+        return temp_buffer
     
-    def __eq__(self, other):
-        """
-        Check equality between two MisRegistration objects.
+    def setup_logging(self, logging_level=logging.WARNING):
+        #
+        #  Setup of logging at the main process using QueueHandler
+        log_queue = Queue()
+        queue_handler = logging.handlers.QueueHandler(log_queue)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging_level)  # Minimum log level
 
-        Parameters
-        ----------
-        other : MisRegistration
-            Another instance.
+        # Setup of the formatting
+        formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s"
+        )
 
-        Returns
-        -------
-        bool
-            True if all parameters match.
-        """
-        if isinstance(other, self.__class__):
-            return self.__dict__ == other.__dict__
-        else:
-            return False
+        # Output to terminal
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
 
-    def __ne__(self, other):
-        """
-        Check inequality between two MisRegistration objects.
+        # Qeue handler captures the messages from the different logs and serialize them
+        queue_listener = logging.handlers.QueueListener(log_queue, console_handler)
+        root_logger.addHandler(queue_handler)
+        queue_listener.start()
 
-        Parameters
-        ----------
-        other : MisRegistration
-            Another instance.
-
-        Returns
-        -------
-        bool
-            True if any parameter differs.
-        """
-        return not self.__eq__(other)
-# ----------------------------------------- Properties  -----------------------------------------
-    @property
-    def rotationAngle(self):
-        return self._rotationAngle
-        
-    @rotationAngle.setter
-    def rotationAngle(self,val):
-        self._rotationAngle  = val
-        if self.isInitialized: 
-            if self.radialScaling ==0 and self.tangentialScaling ==0:
-                self.misRegName        = 'rot_'        + str('%.2f' %val)            +'_'\
-                          'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                          'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                          'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                          'mR_'      + str('%.2f' %(self.radialScaling+1.))       +'_'\
-                          'mT_'  + str('%.2f' %(self.tangentialScaling+1.))     
-            else:
-                self.misRegName        = 'rot_'        + str('%.2f' %val)            +'_'\
-                          'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                          'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                          'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                          'mR_'      + str('%.4f' %(self.radialScaling+1.))       +'_'\
-                          'mT_'  + str('%.4f' %(self.tangentialScaling+1.))  
-        
-    @property
-    def shiftX(self):
-        return self._shiftX
-        
-    @shiftX.setter
-    def shiftX(self,val):
-        self._shiftX  = val
-        if self.isInitialized:  
-            if self.radialScaling ==0 and self.tangentialScaling ==0:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)    +'_'\
-                      'sX_'             + str('%.2f' %(val))                         +'_m_'\
-                      'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mR_'      + str('%.2f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.2f' %(self.tangentialScaling+1.))     
-            else:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)    +'_'\
-                      'sX_'             + str('%.2f' %(val))                         +'_m_'\
-                      'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mR_'      + str('%.4f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.4f' %(self.tangentialScaling+1.))             
+        return queue_listener
     
-    
-    
-    @property
-    def shiftY(self):
-        return self._shiftY
-        
-    @shiftY.setter
-    def shiftY(self,val):
-        self._shiftY  = val
-        if self.isInitialized:  
-            if self.radialScaling ==0 and self.tangentialScaling ==0:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)    +'_'\
-                      'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                      'sY_'             + str('%.2f' %(val))                         +'_m_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mR_'      + str('%.2f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.2f' %(self.tangentialScaling+1.))   
-            else:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)    +'_'\
-                      'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                      'sY_'             + str('%.2f' %(val))                         +'_m_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mR_'      + str('%.4f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.4f' %(self.tangentialScaling+1.))   
-                      
-    @property
-    def anamorphosisAngle(self):
-        return self._anamorphosisAngle
-        
-    @anamorphosisAngle.setter
-    def anamorphosisAngle(self,val):
-        self._anamorphosisAngle  = val
-        if self.isInitialized:  
-            if self.radialScaling ==0 and self.tangentialScaling ==0:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)            +'_'\
-                      'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                      'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                      'anam_'  + str('%.2f' %val)        +'_'\
-                      'mR_'      + str('%.2f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.2f' %(self.tangentialScaling+1.))   
-            else:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)            +'_'\
-                      'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                      'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                      'anam_'  + str('%.2f' %val)        +'_'\
-                      'mR_'      + str('%.4f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.4f' %(self.tangentialScaling+1.))   
-                  
-                  
-    @property
-    def radialScaling(self):
-        return self._radialScaling
-        
-    @radialScaling.setter
-    def radialScaling(self,val):
-        self._radialScaling  = val
-        if self.isInitialized:  
-            if self.radialScaling ==0 and self.tangentialScaling ==0:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)            +'_'\
-                      'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                      'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mR_'      + str('%.2f' %(val+1.))       +'_'\
-                      'mT_'  + str('%.2f' %(self.tangentialScaling+1.))   
-            else:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)            +'_'\
-                      'sX_'             + str('%.2f' %(self.shiftX))                 +'_m_'\
-                      'sY_'             + str('%.2f' %(self.shiftY))                 +'_m_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mR_'      + str('%.4f' %(val+1.))       +'_'\
-                      'mT_'  + str('%.4f' %(self.tangentialScaling+1.))   
-                  
-                  
-    @property
-    def tangentialScaling(self):
-        return self._tangentialScaling
-        
-    @tangentialScaling.setter
-    def tangentialScaling(self,val):
-        self._tangentialScaling  = val
-        if self.isInitialized:  
-            if self.radialScaling ==0 and self.tangentialScaling ==0:
-
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)            +'_'\
-                      'X_'             + str('%.2f' %(self.shiftX))                 +'_'\
-                      'Y_'             + str('%.2f' %(self.shiftY))                 +'_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mN_'      + str('%.2f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.2f' %(val+1.))   
-            else:
-                self.misRegName = 'rot_'        + str('%.2f' %self.rotationAngle)            +'_'\
-                      'sX_'             + str('%.2f' %(self.shiftX))                 +'_'\
-                      'sY_'             + str('%.2f' %(self.shiftY))                 +'_'\
-                      'anam_'  + str('%.2f' %self.anamorphosisAngle)        +'_'\
-                      'mN_'      + str('%.4f' %(self.radialScaling+1.))       +'_'\
-                      'mT_'  + str('%.4f' %(val+1.))      
-                  
-                  
-                  
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% END %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-    def print_(self):
-        print('{: ^14s}'.format('Rotation [deg]') + '\t' + '{: ^11s}'.format('Shift X [m]')+ '\t' + '{: ^11s}'.format('Shift Y [m]')+ '\t' + '{: ^18s}'.format('Radial Scaling [%]')+ '\t' + '{: ^22s}'.format('Tangential Scaling [%]'))
-        print("{: ^14s}".format(str(self.rotationAngle) )  + '\t' +'{: ^11s}'.format(str(self.shiftX))+'\t' + '{: ^11s}'.format(str(self.shiftY)) +'\t' +'{: ^18s}'.format(str(self.radialScaling))+'\t' + '{: ^22s}'.format(str(self.tangentialScaling)))
+    def __del__(self):
+        if not self.external_logger_flag:
+            self.queue_listerner.stop()    
      
