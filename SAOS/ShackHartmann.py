@@ -96,7 +96,7 @@ class ShackHartmann:
             gain : float, optional
                 Detector parameter. Gain of the detector. Default is 1.
             quantization_conversion : float, optional.
-                Detector parameter. Conversion gain to discretize the measurement [e-/px]. Default 70.5e-/DN.
+                Detector parameter. Conversion gain to discretize the measurement [e-/px]. Default 0 --> adjust by well capacity.
             sensorType : str, optional
                 Detector parameter. Sensor type ('CCD', 'CMOS', 'EMCCD'). Default is 'CCD'.
             darkCalibration : int, optional
@@ -161,7 +161,7 @@ class ShackHartmann:
         self.camera_params['darkCurrent'] = kwargs.get('darkCurrent', 250)
         self.camera_params['readoutNoise'] = kwargs.get('readoutNoise', 60)
         self.camera_params['gain'] = kwargs.get('gain', 1)
-        self.camera_params['quantization_conversion'] = kwargs.get('quantization_conversion', 70.5)
+        self.camera_params['quantization_conversion'] = kwargs.get('quantization_conversion', 0)
         self.camera_params['sensorType'] = kwargs.get('sensorType', 'CMOS')
         self.camera_params['darkCalibration'] = kwargs.get('darkCalibration', 20)
         self.camera_params['randomState'] = kwargs.get('randomState', None)
