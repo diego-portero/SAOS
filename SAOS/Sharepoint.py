@@ -5,6 +5,7 @@ Created on March 24 2025
 import time
 import zmq
 import pickle
+import numpy as np
 
 import logging
 import logging.handlers
@@ -145,13 +146,21 @@ class Sharepoint:
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].atmosphere_phase)])
 
             if self.dm_per_dir > 0:
-                for j in range(len(light_path[i].dm_opd)):
-                    topics.append(topic_name + 'dm_opd_' + str(j+1))
-                    topics.append(topic_name + 'dm_phase_' + str(j+1))
-                    if ((iteration+1) % self.dm_per_dir) == 0:
-                        self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].dm_opd[j])])
-                        self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].dm_opd[j])])
-            
+                # Check number of dirs
+                if np.ndim(light_path[i].dm_opd) > 2:
+                    ndirs = light_path[i].dm_opd.shape[0]
+                    for j in range(ndirs):
+                        topics.append(topic_name + 'dm_opd_' + str(j+1))
+                        topics.append(topic_name + 'dm_phase_' + str(j+1))
+                        if ((iteration+1) % self.dm_per_dir) == 0:
+                            self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].dm_opd[j])])
+                            self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].dm_opd[j])])
+                else:
+                    ndirs = 1
+                    topics.append(topic_name + 'dm_opd')
+                    topics.append(topic_name + 'dm_phase')
+                    self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].dm_opd)])
+                    self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].dm_opd)])
             if self.slopes > 0:
                 topics.append(topic_name + 'slopes_1D')
                 topics.append(topic_name + 'slopes_2D')
