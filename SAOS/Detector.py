@@ -291,7 +291,7 @@ class Detector:
                 quantized_frame = (electron_noisy_frame / electron_noisy_frame.max()) * 2**(self.nBits) # [counts]
             else:
                 self.quantizationNoise = self.fullWellCapacity / (np.sqrt(12) * 2**(self.nBits)) # [e-]
-                quantized_frame = electron_noisy_frame / ((2**self.nBits) - 1)  # [counts]
+                quantized_frame = (electron_noisy_frame / self.fullWellCapacity) * 2**(self.nBits)  # [counts]
         else:
             self.quantizationNoise = self.quantization_conversion / np.sqrt(12)  # [e-]
             quantized_frame = electron_noisy_frame / self.quantization_conversion  # [counts]
