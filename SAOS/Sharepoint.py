@@ -148,7 +148,7 @@ class Sharepoint:
             if self.dm_per_dir > 0:
                 # Check number of dirs
                 if np.ndim(light_path[i].dm_opd) > 2:
-                    ndirs = light_path[i].dm_opd.shape[0]
+                    ndirs = len(light_path[i].dm_opd)
                     for j in range(ndirs):
                         topics.append(topic_name + 'dm_opd_' + str(j+1))
                         topics.append(topic_name + 'dm_phase_' + str(j+1))
