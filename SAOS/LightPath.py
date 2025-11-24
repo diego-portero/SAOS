@@ -63,8 +63,9 @@ class LightPath:
         self.wfs_frame = None
         
         # Science variables
-        self.sci_frame = None
-        self.long_exposure_frame = None
+        self.sci_frame = None # Frame, noise free and of exposure equivalent to 1 sampling cycle. Normalize so that sum of energy is 1.
+        self.long_exposure_frame = None # Frame of exposure setup by the user. Can be noisy (user-config). The frame is scaled by the number of photons.
+        self.long_exp_cumulative = []
         self.decimation_counter = 0
 
     # An optical path is defiend, at least, by the source object emitting the light, the atmosphere and the telescope.
@@ -124,7 +125,7 @@ class LightPath:
     # parallel_atm: if True, the atmosphere method getOPD is executed in parallel with the each DMs getOPD
     # parallel_dms: if True, each DM getOPD is executed in parallel
     # interaction_matrix: if True, the Atmosphere is not added to the DM OPD during the IM measurement
-    def propagate(self, parallel_atm=False, parallel_dms=False, interaction_matrix=False):
+    def propagate(self, parallel_atm=False, parallel_dms=False, interaction_matrix=False, compute_sci_img=True):
         """
         Simulate light propagation through the configured optical path.
 
@@ -211,15 +212,46 @@ class LightPath:
         self.sci_phase = self.sci_opd * (2 * np.pi /self.src.wavelength)
 
         # Generate the Science frame, if defined
-        if self.sci is not None:
-            if (self.decimation_counter % self.sci.decimation) == 0:
-                self.sci_frame = self.sci.get_frame(self.src, self.sci_phase)
-                if self.long_exposure_frame is None:
-                    self.long_exposure_frame = np.zeros_like(self.sci_frame)
+        if (self.sci is not None) and compute_sci_img:
+            get_frame = False
+            # Check Science cam decimation
+            if self.sci.decimation > 0:
+                # Then, we have to check the decimation
+                if (self.decimation_counter % self.sci.decimation) == 0:
+                    get_frame = True
+            else:
+                get_frame = True
+            # If we have to get the frame, do it, if not empty the sci img buffer for the publishing modules
+            if get_frame:
+                # Get short exp frame (noise-free)
+                noise_free_frame = self.sci.get_frame(self.src, self.sci_phase) # Noise free frame
+                self.sci_frame = noise_free_frame.copy()
+                # Append current short exp frame to the cumulative list
+                self.long_exp_cumulative.append(self.sci_frame)
+                # Now, manage the long exposure frame --> The number of frames accumulated let us know the time exposed
+                exposured_time = len(self.long_exp_cumulative) * self.tel.samplingTime
+                # Check if we have exposed the required time
+                if exposured_time >= self.sci.integrationTime:
+                    # Add the frames accumulated
+                    longExp = np.sum(self.long_exp_cumulative, 0)
+                    # Normalize energy to 1
+                    total_energy = np.sum(longExp)
+                    if total_energy > 0:
+                        longExp /= total_energy
+                    # Check if the user wants to add noise
+                    if self.sci.cam.noiseFlag:
+                        longExp = self.sci.apply_noise(longExp, self.src.nPhoton * self.tel.integrationTime)
+                    else:
+                        longExp = longExp * self.src.nPhoton * self.sci.integrationTime * self.sci.lightRatio
+                    # Save the frame 
+                    self.long_exposure_frame = np.squeeze(longExp).copy()
+                    # Reset the cumulative frame
+                    self.long_exp_cumulative = []
                 else:
-                    if self.decimation_counter >= self.sci.long_exposure_delay:
-                        self.long_exposure_frame += self.sci_frame
-                self.decimation_counter += 1
+                    self.long_exposure_frame = None
+            else:
+                self.sci_frame = None
+                self.long_exposure_frame = None
         
         return True
     

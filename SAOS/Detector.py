@@ -140,11 +140,6 @@ class Detector:
         self.frame                  = np.zeros((self.nPix,self.nPix)) # stores the result frame
         self.dark_calibration_frame = np.zeros_like(self.frame)  # stores the dark calibration frame
         
-        
-        self.integration_frame  = np.zeros((self.nPix,self.nPix)) # stores the frame that is integrating
-        self.integrated_time    = 0
-        self.integrated_photons = 0
-
         self.randomGenerator    = np.random.default_rng(seed=self.random_state)
 
         if self.nBits == 8:
@@ -179,14 +174,14 @@ class Detector:
             self.dark_calibration_frame = np.zeros_like(self.frame)
 
 
-    def integrate(self, ideal_frame, photons):
+    def integrate(self, input_frame, input_photons):
         """
         Integrate the noise free frame, adding the corresponding noise.
         
         Parameters
         ----------
-        ideal_frame : np.ndarray
-            The ideal noise-free frame to integrate.
+        input_frame : np.ndarray
+            The noise-free frame to integrate.
         photons : int
             The number of photons received in the current sampling time.
 
@@ -196,60 +191,31 @@ class Detector:
             The integrated frame with noise added, when the integration time is completed. 
             If None, the integration is ongoing.
         """
-
-        # Check if we need to integrate
-
-        deltaTime = np.minimum(self.integrationTime - self.integrated_time, self.samplingTime)
-
-        if deltaTime < 0:
-            self.logger.error('Detector::integrate - negative intgration time required, this should not happend.')
-            return None
         
         # Integrate
-        
-        self.integration_frame += ideal_frame
-        self.integrated_photons += np.round(photons * (deltaTime / self.samplingTime))
-
-        self.integrated_time += deltaTime
-
-        if self.integrated_time == self.integrationTime:
-            if self.noiseFlag:
-                # Get the noisy frame
-                self.frame = self.readout(self.integration_frame, self.integrated_photons)
-            else:
-                self.frame = ideal_frame
-
-            # Restart the integration time, frame and photons
-            self.integrated_time = 0
-            self.integration_frame = np.zeros_like(self.frame).astype(float)
-            self.integrated_photons = 0
-
-            # Compute SNR
-
-            self.snr = self.get_snr()
-
-            return self.frame
+        if self.noiseFlag:
+            # Get the noisy frame
+            frame = self.readout(input_frame, input_photons)
         else:
-            return None
+            frame = input_frame
+
+        return frame
         
-    def readout(self, integrated_frame, photons):
+    def readout(self, input_frame, photons):
 
         # 1: Normalize energy in the frame to 1
-        energy = np.sum(integrated_frame)
-        norm_frame = integrated_frame.copy()
+        energy = np.sum(input_frame)
+        norm_frame = input_frame.copy()
         if energy > 0:
-            norm_frame /= np.sum(integrated_frame)
+            norm_frame /= np.sum(input_frame)
 
         # 2: Scale by the number of photons
         photons_frame = np.round(norm_frame * photons) # [photons]
-        self.peak_signal = self.quantumEfficiency * photons_frame.max() # [e-]
 
         # 3: Photon noise
         if self.shotNoise:
-            self.photon_noise_sigma = np.sqrt(self.peak_signal) # sqrt([e-])
             photon_noisy_frame = self.randomGenerator.poisson(photons_frame) # [photons]
         else:
-            self.photon_noise_sigma = 0
             photon_noisy_frame = photons_frame
         
         # 4: Convert from photons to electrons
@@ -257,14 +223,10 @@ class Detector:
         electron_noisy_frame = self.quantumEfficiency * photon_noisy_frame # [e-]
 
         # 5: Dark current noise
-
-        self.dark_noise_sigma = np.sqrt(self.darkCurrent * self.integrationTime) # sqrt([e-])
-        dark_current_map = np.ones_like(integrated_frame) * self.darkCurrent * self.integrationTime
+        dark_current_map = np.ones_like(input_frame) * self.darkCurrent * self.integrationTime
         electron_noisy_frame += self.randomGenerator.poisson(dark_current_map) # [e-]
 
         # 6: Saturate
-
-        self.saturation_level = 100* (electron_noisy_frame.max() / self.fullWellCapacity) # [%]
 
         if electron_noisy_frame.max() > self.fullWellCapacity:
             self.logger.warning('Detector::readout - The sensor is saturating.')
@@ -307,21 +269,7 @@ class Detector:
 
         # 11: Set precision 
             
-        return quantized_saturated_frame.astype(self.dataType)
-    
-    def get_snr(self):
-
-        noise_level = np.sqrt(self.photon_noise_sigma**2 + self.dark_noise_sigma**2 + self.readoutNoise**2 + self.quantizationNoise**2)
-        
-        if self.noiseFlag:
-            if noise_level <= 0:
-                self.logger.warning('Detector::get_snr - The noise level is <= 0, setting SNR to 0.')
-                return 0
-        
-            return self.peak_signal/noise_level
-        else:
-            return np.inf
-        
+        return quantized_saturated_frame.astype(self.dataType)       
     
     def setup_logging(self, logging_level=logging.WARNING):
         #  Setup of logging at the main process using QueueHandler
