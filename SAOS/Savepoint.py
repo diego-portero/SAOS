@@ -165,10 +165,12 @@ class Savepoint:
 
         if self.sci_frame and group_name.find('LightPath')>=0 and (data_group.sci is not None):
             # Create group and add the datasets with the statistics ( mask is not needed)
-            sci_frame_grp = group.create_group('sci_frame_shortExp')
-            self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, data_group.sci_frame, None, data_group)
-            sci_frame_grp = group.create_group('sci_frame_longExp')
-            self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, data_group.long_exposure_frame, None, data_group)            
+            if data_group.sci_frame is not None:
+                sci_frame_grp = group.create_group('sci_frame_shortExp')
+                self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, data_group.sci_frame, None, data_group)
+            if data_group.long_exposure_frame is not None:
+                sci_frame_grp = group.create_group('sci_frame_longExp')
+                self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, data_group.long_exposure_frame, None, data_group)
 
     def custom_create_dataset(self, data_type, group, iteration, data, mask, lp=None):
         """
@@ -192,7 +194,7 @@ class Savepoint:
         """
         if np.ndim(data) == 2:
             data = data[None, ...]
-                
+
         group.create_dataset('data', data=data[None, ...], maxshape=(None,) + data.shape, chunks=True)        
         group.create_dataset('iteration', data=np.array([iteration]), maxshape=(None,), chunks=True)
 
@@ -232,8 +234,7 @@ class Savepoint:
             'rms': None,
             'contrast': None,
             'MFGS': None,
-            'strehl': None,
-            'longExpStrehl': None
+            'strehl': None
         }
 
         if data_type == 'phase' or data_type == 'opd':
@@ -274,10 +275,12 @@ class Savepoint:
                 else:
                     dict_stats['contrast'] = np.array([0.0])
                 
+                img = data.squeeze() * 860e6
+
                 # Get median filtered image
-                filter = np.ones((3,3))
-                filter /= np.prod(filter.shape)
-                med = signal.convolve2d(np.squeeze(data), filter, mode='same', boundary='symm')
+                kernel = np.ones((3,3))
+                kernel /= np.prod(kernel.shape)
+                med = signal.convolve2d(img, kernel, mode='same', boundary='symm')
                 # Create Gradient filters
                 kx = np.array(([-3, 0, 3], [-10, 0, 10], [-3, 0, 3]))
                 ky = np.rot90(kx)
@@ -285,11 +288,11 @@ class Savepoint:
                 kx_med = signal.convolve2d(med, kx, mode='same', boundary='symm')
                 ky_med = signal.convolve2d(med, ky, mode='same', boundary='symm')
                 # Compute gradient of the original image
-                kx_img = signal.convolve2d(np.squeeze(data), kx, mode='same', boundary='symm')
-                ky_img = signal.convolve2d(np.squeeze(data), ky, mode='same', boundary='symm')
+                kx_img = signal.convolve2d(img, kx, mode='same', boundary='symm')
+                ky_img = signal.convolve2d(img, ky, mode='same', boundary='symm')
                 # combine gradients
-                g_img = np.sum(np.sqrt(kx_img**2 + ky_img**2))
-                g_med = np.sum(np.sqrt(kx_med**2 + ky_med**2))
+                g_img = np.sum(np.hypot(kx_img, ky_img))
+                g_med = np.sum(np.hypot(kx_med, ky_med))
                 # compute metric
                 numerator = 2.0 * g_img * g_med
                 denominator = g_img**2 + g_med**2
@@ -444,10 +447,20 @@ class Savepoint:
 
                         # Science Frame
                         if self.sci_frame and ((iteration+1)%self.sci_frame) == 0 and (lp.sci is not None):
-                            grp = group['sci_frame_shortExp']
-                            self.append_to_dataset('sci_frame', grp, iteration, lp.sci_frame, lp)
-                            grp = group['sci_frame_longExp']
-                            self.append_to_dataset('sci_frame', grp, iteration, lp.long_exposure_frame, lp)
+                            if lp.sci_frame is not None:
+                                if 'sci_frame_shortExp' in group.keys():
+                                    grp = group['sci_frame_shortExp']
+                                    self.append_to_dataset('sci_frame', grp, iteration, lp.sci_frame, lp)
+                                else:
+                                    sci_frame_grp = group.create_group('sci_frame_longExp')
+                                    self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, lp.long_exposure_frame, None, lp)
+                            if lp.long_exposure_frame is not None:
+                                if 'sci_frame_longExp' in group.keys():
+                                    grp = group['sci_frame_longExp']
+                                    self.append_to_dataset('sci_frame', grp, iteration, lp.sci_frame, lp)
+                                else:
+                                    sci_frame_grp = group.create_group('sci_frame_longExp')
+                                    self.custom_create_dataset('sci_frame', sci_frame_grp, iteration, lp.long_exposure_frame, None, lp)                                
 
     def setup_logging(self, logging_level=logging.WARNING):
         #
