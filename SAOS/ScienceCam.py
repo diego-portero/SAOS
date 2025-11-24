@@ -33,8 +33,7 @@ class ScienceCam:
                  telescope,
                  lightRatio:float=50,
                  integrationTime:float=None,
-                 decimation:int=50,
-                 long_exposure_delay:int=5,
+                 decimation:int=1,
                  noiseFlag:bool=False,
                  logger=None,
                  **kwargs):
@@ -57,8 +56,6 @@ class ScienceCam:
             Integration time in seconds. Defaults to samplingTime.
         decimation : int, optional
             Decimation factor for storing results. Default is 50.
-        long_exposure_delay : int, optional
-            Delay in iterations to wait before starting to accumulate science images, by default 5.
 
         noiseFlag : bool, optional
             If True, the detector includes noise using the kwargs params/default config. By default, False.                 
@@ -102,7 +99,6 @@ class ScienceCam:
         self.plate_scale         = plate_scale
         self.samplingTime        = samplingTime
         self.decimation          = decimation
-        self.long_exposure_delay = long_exposure_delay
         self.lightRatio          = lightRatio
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -138,7 +134,6 @@ class ScienceCam:
 
         camera_kwargs = {'randomState':self.camera_params['randomState'], 
                          'integrationTime':self.integrationTime}
-
 
         self.cam = Detector(nPix=self.camera_size,
                             samplingTime=telescope.samplingTime,
@@ -188,9 +183,7 @@ class ScienceCam:
                 self.fake_src_dict[key_wavelength] = self.compute_psf(phase*0, fwhm).cpu().numpy()   
             
             # Continue computing the PSF of the source                     
-            psf = self.compute_psf(phase, fwhm)
-            
-            frame = self.cam.integrate(psf.cpu().numpy(), src.nPhoton*self.lightRatio) # The coherence is the PSF because the object is a point-source
+            frame = self.compute_psf(phase, fwhm)
         
         elif src.tag == 'sun':
             if src.fov < self.fieldOfView:
@@ -227,16 +220,16 @@ class ScienceCam:
 
             sun_PSF_combined = torch.zeros(np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                            np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                           dtype=torch.float32, device=self.device).contiguous()
+                                           dtype=torch.float64, device=self.device).contiguous()
             
             sun_psf_tmp_3D = torch.zeros((np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                           np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), src.nSubDirs*src.nSubDirs), 
-                                          dtype=torch.float32, device=self.device).contiguous()
+                                          dtype=torch.float64, device=self.device).contiguous()
 
             # The small gain corrector is used to normalize the filter after it was interpolated so that differences below 1-2% can be compensated
             small_gain_corrector = torch.zeros((np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
                                                 np.ceil((src.fov+src.patch_padding)/self.plate_scale).astype(int), 
-                                                src.nSubDirs*src.nSubDirs), dtype=torch.float32, device=self.device).contiguous()
+                                                src.nSubDirs*src.nSubDirs), dtype=torch.float64, device=self.device).contiguous()
             
             for i in range(len(sun_patches)):
                 dirX = i//src.nSubDirs
@@ -260,18 +253,29 @@ class ScienceCam:
             
             offset = sun_PSF_combined[0].shape[0]//2 - self.nPix//2
 
-            frame = sun_PSF_combined[offset:offset+self.nPix, offset:offset+self.nPix].cpu().numpy()
+            frame = sun_PSF_combined[offset:offset+self.nPix, offset:offset+self.nPix]
             t5 = time.time()
-            # Add detector noise
-
-            frame = self.cam.integrate(frame, src.nPhoton*self.lightRatio)
-            t6 = time.time()
-            self.logger.debug(f'to 3D; {t1-t0}, interpolate: {t2-t1}, compute psf: {t3-t2}, compute image: {t4-t3}, combine: {t5-t4}, integrate: {t6-t5}, total: {t6-t0}')
+            
+            self.logger.debug(f'to 3D; {t1-t0}, interpolate: {t2-t1}, compute psf: {t3-t2}, compute image: {t4-t3}, combine: {t5-t4}, total: {t5-t0}')
         else:
             raise ValueError(f'ScienceCam::get_frame - The source tag ({src.tag}) is not supported.')
         
-        return frame
+        # Normalize frame energy so that it sums 1
+        total_energy = torch.sum(frame)
+        
+        if total_energy > 0:
+            frame /= total_energy           
+
+        return frame.cpu().numpy()
     
+    def apply_noise(self, frame, total_photons):
+        # Compute photons arriving to the sensor
+        input_photons = total_photons * self.lightRatio
+        # Add detector noise
+        frame = self.cam.integrate(frame, input_photons)
+
+        return frame
+
     def compute_psf(self, phase, fwhm, nPix=None):
         """
         Compute the PSF from a given phase map using FFT.
