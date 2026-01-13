@@ -126,7 +126,7 @@ class ScienceCam:
         self.camera_params['darkCurrent'] = kwargs.get('darkCurrent', 250)
         self.camera_params['readoutNoise'] = kwargs.get('readoutNoise', 60)
         self.camera_params['gain'] = kwargs.get('gain', 1)
-        self.camera_params['quantization_conversion'] = kwargs.get('quantization_conversion', 70.5)
+        self.camera_params['quantization_conversion'] = kwargs.get('quantization_conversion', 0)
         self.camera_params['sensorType'] = kwargs.get('sensorType', 'CMOS')
         self.camera_params['darkCalibration'] = kwargs.get('darkCalibration', 20)
         self.camera_params['randomState'] = kwargs.get('randomState', None)
@@ -315,7 +315,7 @@ class ScienceCam:
         end = start + nPix
 
         # Phase torch
-        exp_phase = torch.zeros((nFFT, nFFT), dtype=torch.complex64, device=self.device).contiguous()
+        exp_phase = torch.zeros((nFFT, nFFT), dtype=torch.complex128, device=self.device).contiguous()
 
         exp_phase[start:end, start:end] = torch.polar(pupil_rescaled, phase_rescaled)
 
