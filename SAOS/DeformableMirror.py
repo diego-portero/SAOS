@@ -36,7 +36,7 @@ class dmLayerClass():
         self.metapupil              = None # 2D telescope pupil at the DM altitude [circular mask], at 0km equals the pupil without spider nor central obs
         self.pupil                  = None # 2D telescope pupil [binary mask]
         self.OPD                    = None # stores the layer OPD without projection to any source (full pupil/metapupil)
-        self.cmd_2D                 = None # stores the 2D DM command.
+        self.cmd_1D                 = None # stores the 1D DM command, including valid and invalid actuators
         
 """
 Deformable Mirror Module
@@ -48,13 +48,13 @@ This module contains the `DeformableMirror` class, used for modeling a deformabl
 class DeformableMirror:
     def __init__(self,
                  telescope,
-                 nSubap:float,
+                 nActs:float,
                  mechCoupling:float = 0.35,
                  coordinates:np.ndarray = None,
                  pitch:float = None,
                  modes:np.ndarray = None,
                  misReg = None,
-                 customDM = None,
+                 typeDM:str = 'cartesian',
                  floating_precision:int = 64,
                  altitude:float = None,
                  flip = False,
@@ -70,20 +70,20 @@ class DeformableMirror:
         ----------
         telescope : Telescope
             Telescope associated with this DM.
-        nSubap : float
-            Number of subapertures across the pupil diameter.
+        nActs : float
+            Number of actuators in the horizontal axis of the pupil.
         mechCoupling : float, optional
             Coupling factor between actuators, by default 0.35.
         coordinates : np.ndarray, optional
-            Custom actuator coordinates. Overrides default grid.
+            Custom actuator coordinates.
         pitch : float, optional
             Actuator pitch in meters.
         modes : np.ndarray, optional
             Influence functions or modal basis.
         misReg : MisRegistration, optional
             Misregistration object for geometrical offsets.
-        customDM : dict, optional
-            Custom DM setup configuration.
+        typeDM : str, optional
+            Type of the DM: {cartesian, radial, custom}. By default, custom.
         floating_precision : int, optional
             Use 32 or 64-bit floats, by default 64.
         altitude : float, optional
@@ -104,7 +104,7 @@ class DeformableMirror:
             validActThreshpercentage : float, optional
                 Parameter to select a percentage of the actuator pitch to consider it valid o not.
             maxStrokePtV : float, optional
-                Maximum mechanical stroke peak-to-valley in [m]. By default 5e-6 [m].
+                Maximum mechanical stroke peak-to-valley in [m]. By default 100e-6 [m].
         """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
@@ -123,24 +123,18 @@ class DeformableMirror:
         self.flip_lr = flip_lr 
         self.sign = sign
         self.altitude = altitude
+        self.nActs = nActs
 
         if mechCoupling <=0:
             raise ValueError('The value of mechanical coupling should be positive.')
         else:
             self.mechCoupling          = mechCoupling
-
-        # The DM can be customized, defining the Influence Functions
-        if customDM is not None:
-            self.logger.warning('DeformableMirror::__init__ - Custon DM IF is not yet supported in this new version, using default.')
-            self.isCustom = False
-        else:
-            self.isCustom = False
+        
         # Define the DM layer       
         self.dm_layer = self.buildLayer(telescope, altitude)
-        
-        # Case with no pitch specified --> Cartesian geometry
+
         if pitch is None:
-            self.pitch             = self.dm_layer.D_fov/(nSubap)  # size of a subaperture
+            self.pitch = self.dm_layer.D_fov/(nActs-1)  # size of a subaperture
         else:
             self.pitch = pitch
         
@@ -148,104 +142,133 @@ class DeformableMirror:
             # create a MisReg object to store the different mis-registration
             self.misReg = MisRegistration(0,0,0,1,telescope=telescope, logger=self.logger)
         else:
-            self.misReg=misReg
+            self.misReg=misReg            
 
-        validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.7533)
-        self.maxStrokePtV = kwargs.get('maxStrokePtV', 51e-6) # [m]
+        self.valid_act_thresh_outer = valid_act_thresh_outer
+        self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.7533)
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]      
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Depending on the type of the DM, the coordinates are generated differently
+        if typeDM == 'cartesian':
+            # Define the coordinates
+            self.coordinates, self.validAct, self.nValidAct = self.generate_cartesian_dm(nActs)
+        elif typeDM == 'radial':
+            self.logger.warning('DeformableMirror::__init__ - Radial DM is not yet supported in this new version, using default.')
+            self.typeDM = 'cartesian'
+        elif typeDM == 'custom':
+            self.logger.warning('DeformableMirror::__init__ - Custon DM is not yet supported in this new version, using default.')
+            self.typeDM = 'cartesian'
+        else:
+            self.logger.error('DeformableMirror::__init__ - Unrecognized DM type, using default. Implemented are: [cartesian, radial, custom]')
+            raise ValueError('Unrecognized DM type, using default.')
         
-        ## DM initialization
-
-        # If no coordinates are given --> Cartesian Geometry is assumed
-        
-        if coordinates is None: 
-            self.logger.info('DeformableMirror::__init__ - No coordinates loaded.. taking the cartesian geometry as a default') 
-
-            self.nAct                               = nSubap+1 # In that case corresponds to the number of actuator along the diameter      
-
-            self.dm_layer.cmd_2D                    = np.zeros([self.nAct,self.nAct]) # stores the 2D DM command      
-            
-            # set the coordinates of the DM object to produce a cartesian geometry
-            x = np.linspace(-(self.dm_layer.D_fov)/2,(self.dm_layer.D_fov)/2,self.nAct)
-            X,Y=np.meshgrid(x,x)            
-            
-            # compute the initial set of coordinates
-            self.xIF0 = np.reshape(X,[self.nAct**2])
-            self.yIF0 = np.reshape(Y,[self.nAct**2])
-            
-            # select valid actuators --> removing the central and outer obstruction
-            r = np.sqrt(self.xIF0**2 + self.yIF0**2)
-            
-            if valid_act_thresh_outer is None: 
-                valid_act_thresh_outer = self.dm_layer.D_fov/2#+validActThreshpercentage*self.pitch
-            
-            self.validAct = r <= valid_act_thresh_outer
+        # Compute the interpolation weights
+        self.interp_weights, self.interp_idx = self.high_res_interpolator(self.coordinates, self.validAct) # Shepard-kind interpolation
     
-            self.validAct_2D = self.validAct.reshape(self.nAct,self.nAct)
-            self.nValidAct   = sum(self.validAct) 
-            
-        # If the coordinates are specified   
-        else:
-            if np.shape(coordinates)[1] !=2:
-                raise AttributeError('DeformableMirror::__init__ - Wrong size for the DM coordinates, \
-                                     the (x,y) coordinates should be input as a 2D array of dimension [nAct,2]')
-                
-            self.logger.info('DeformableMirror::__init__ - Coordinates loaded.') 
+    # Generation of the cartesian coordinates and mask of valid actuators using the outer pupil limit
+    
+    def generate_cartesian_dm(self, nActs):
+        """
+        Generates a distribution of cartesian points and a logic mask 
+        filtering the points that are within the limits of the external
+        pupil diameter.
 
-            self.xIF0 = coordinates[:,0]
-            self.yIF0 = coordinates[:,1]
-            self.nAct = len(self.xIF0) # In that case corresponds to the total number of actuators
-            
-            validAct=(np.arange(0,self.nAct)) # In that case assumed that all the Influence Functions provided are controlled actuators
-            
-            self.validAct = validAct.astype(int)         
-            self.nValidAct = self.nAct 
+        Parameters
+        ----------
+        nActs : int
+            Number of actuators in the square side
+
+        Returns
+        -------
+        coordinates : numpy.ndarray
+            X and Y coordinates aranged as [nActs**2,2]
+        validAct : numpy.ndarray
+            Logic mask of valid actuators
+        nValidAct : int
+            Number of valid actuators
+        """
+        # First, we need to generate the coordinates for the cartesian grid, centered in the optical axis.
+
+        x    = np.linspace(-(self.dm_layer.D_fov)/2,(self.dm_layer.D_fov)/2, nActs)
+        X, Y = np.meshgrid(x,x)
+
+        coordinates = np.array([X.flatten(), Y.flatten()]).T
+
+        # Second, define mask to obtain the valid actuators
+
+        r = np.sqrt(X**2 + Y**2)
         
-        # Gain correction for the borders of the DM due to interpolation errors
-        self.gain_correction = self.validAct_2D.copy().astype(float)
-        self.gain_correction = sp.ndimage.zoom(self.gain_correction, (self.dm_layer.D_px/self.validAct_2D.shape[0], self.dm_layer.D_px/self.validAct_2D.shape[0]), order=1)
-            
-        #  INFLUENCE FUNCTIONS COMPUTATION
-        #  initial coordinates
+        if self.valid_act_thresh_outer is None:
+            self.valid_act_thresh_outer = self.dm_layer.D_fov/2#+self.validActThreshpercentage*self.pitch
         
-        self.xIF = self.xIF0[self.validAct]
-        self.yIF = self.yIF0[self.validAct]
+        validAct  = r <= self.valid_act_thresh_outer
+        nValidAct = np.sum(validAct)
 
-        # corresponding coordinates on the pixel grid
-        u0x      = self.validAct_2D.shape[0] /2 + self.xIF*self.validAct_2D.shape[0] /self.dm_layer.D_fov
-        u0y      = self.validAct_2D.shape[0] /2 + self.yIF*self.validAct_2D.shape[0] /self.dm_layer.D_fov      
-        self.nIF = len(self.xIF)
-        # store the coordinates
-        self.coordinates        = np.zeros([self.nIF, 2])
-        self.coordinates[:,0]   = self.xIF
-        self.coordinates[:,1]   = self.yIF
+        return coordinates, validAct.flatten(), nValidAct
 
-        # If the Influence Functions are not provided, the DM must generate them:
-        if self.isCustom==False:
-            self.logger.info('DeformableMirror::__init__ - Generating Deformable Mirror modes.')
-            if np.ndim(modes)==0:
-                self.logger.info('DeformableMirror::__init__ - Computing the 2D zonal modes..')
-                # FWHM of the gaussian depends on the anamorphosis
-                def joblib_construction():
-                    Q=Parallel(n_jobs=8,prefer='threads')(delayed(self.modesComputation)(i,j) for i,j in zip(u0x,u0y))
-                    return Q 
-                self.modes = np.ascontiguousarray(np.squeeze(np.moveaxis(np.asarray(joblib_construction()),0,-1))).reshape(self.validAct_2D.shape[0],
-                                                                                                                           self.validAct_2D.shape[0],
-                                                                                                                           self.nValidAct)
-                self.modes_torch = torch.tensor(self.modes).contiguous()
-            else:
-                self.logger.info('DeformableMirror::__init__ - Loading the 2D zonal modes..')
-                self.modes = modes
-                self.nValidAct = self.modes.shape[1]
-            self.logger.info('DeformableMirror::__init__ - Done!')
-        else:
-            self.logger.info('DeformableMirror::__init__ - Using Custom Influence Functions.')
+    # Interpolates from a set of coordinates without requiring a specific
+    # distribution to a grid of points.
+
+    def high_res_interpolator(self, coordinates, validActuators, k_nearest=24):
+        """
+        Generates a grid of points from a set of points distributed as indicated
+        by the coordinates matrix, without requiring any specific distribution. Uses a Shepard-kind interpolation.
+
+        Parameters
+        ----------
+        coordinates : numpy.ndarray
+            X and Y coordinates aranged as [nActs**2,2]
+        validAct : numpy.ndarray
+            Logic mask of valid actuators
+        k_nearest : optional, int            
+            Selects the k-nearest neighbourgs. By default 8.
+
+        Returns
+        -------
+        weights : torch.Tensor
+            Weighting matrix to perform the interpolation using the valid actuators
+        idx : torch.Tensor
+            Indices to select the k-neighbours of each point
+        """
+        # Convert from ndarray to tensors for performance
+
+        coordinates_torch = torch.as_tensor(coordinates[validActuators], dtype=torch.float32, device=self.device)
+
+        # Make a grid of points
+
+        x    = np.linspace(-(self.dm_layer.D_fov)/2,(self.dm_layer.D_fov)/2, self.dm_layer.D_px)
+        grid_x, grid_y = np.meshgrid(x,x)
+
+        gx = torch.as_tensor(grid_x, dtype=torch.float32, device=self.device).reshape(-1)
+        gy = torch.as_tensor(grid_y, dtype=torch.float32, device=self.device).reshape(-1)
+        grid_highres = torch.stack([gx, gy], dim=1)  # (D_px**2,2)
+
+        # Compute the distance between each point in the grid and the points defined by the input coordinates matrix
+        d = torch.cdist(grid_highres, coordinates_torch, p=2.0) # distance using 2-norm (euclidean distance)
+        d2 = d * d # compute the square of the distance
+
+        # Select k-neighbours
+        d2k, idx = torch.topk(d2, k=k_nearest, dim=1, largest=False, sorted=False)
+
+        # Select limit distance analysing the neighbourhood
+        # distance to the farest neighbour
+        dk = torch.sqrt(d2k.max(dim=1).values)
+        ls = dk.median().clamp_min(1e-6)
+        lengthscale = float(ls.item())
         
-        # Setting the precision for the actuation commands
+        inv_l2 = 1.0 / (lengthscale * lengthscale)
 
-        if floating_precision==32:            
-            self.coefs = np.zeros(self.nValidAct,dtype=np.float32)
-        else:
-            self.coefs = np.zeros(self.nValidAct,dtype=np.float64)
+        # Compute Gaussian kernel for the interpolation
+
+        weights = torch.exp(-0.5 * d2k * inv_l2)
+
+        # Normalize the weights
+
+        weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-12)
+
+        return weights, idx.to(torch.int64)
     
     # The DM can be considered as an atmospheric layers with discrete points actuated, which are then connected with their influence functions, 
     # shaping a continuous 2D surface. 
@@ -281,7 +304,7 @@ class DeformableMirror:
         layer.center            = layer.D_px//2
 
         layer.OPD               = np.zeros([layer.D_px,layer.D_px]) # stores the layer OPD without projection to any source (full pupil/metapupil)
-        layer.cmd_2D            = None # stores the 2D DM command
+        layer.cmd_1D            = None # stores the 1D DM command, including valid and invalid actuators
 
         layer.telescope_D          = telescope.D # Telescope diameter in [m]
         layer.telescope_resolution = telescope.resolution # Telescope diameter in [px] using the original telescope resolution
@@ -431,49 +454,35 @@ class DeformableMirror:
         self.logger.debug('DeformableMirror::updateDMShape') 
 
         if isinstance(val, np.ndarray):
-            if (val.shape[0] == self.nAct) and (val.shape[1] == self.nAct):
-                # The command received is a 2D matrix, take only the valid actuators!
-                val = val.flatten()[self.validAct]
-            elif (val.shape[0] == self.validAct.shape[0]):
+            if val.ndim > 1:
+                self.logger.error(f'DeformableMirror::updateDMShape - Shape of the command is not supported. Expected 1D array.')                
+                raise ValueError('Shape of the command is not supported. Expected 1D array.')
+
+            if val.shape[0] == self.validAct.shape[0]:
                 # Command received is 1D, without filtering the unused actuators
                 val = val[self.validAct]
-            elif (val.shape[0] == self.nValidAct):
+            elif val.shape[0] == self.nValidAct:
                 # Command received is 1D, only valid actuators
                 val = val
             else:
-                self.logger.error(f'DeformableMirror::updateDMShape - Shape of the command is not support: {val.shape}, \
-                                  expected {self._coefs.shape}')
-                return False
+                self.logger.error(f'DeformableMirror::updateDMShape - Size of the command is not correct: {val.shape}.')
+                raise ValueError('Size of the command is not correct.')
         
-        if self.floating_precision==32:            
-            self._coefs = np.float32(val)
-        else:
-            self._coefs = val
+        # Fill the layer 1D command
+        temp = np.zeros_like(self.validAct, dtype=val.dtype)
+        temp[self.validAct] = val
+        
+        self.dm_layer.cmd_1D = temp.copy()
 
-        if len(val)==self.nValidAct:
+        # Apply the Shepard interpolator, with the pre-computed weights
+        coefs_torch           = torch.as_tensor(val, dtype=torch.float32, device=self.device)
+        coefs_neighbourhood   = coefs_torch[self.interp_idx]
+        opd_highres           = (self.interp_weights * coefs_neighbourhood).sum(dim=1)
 
-            temp = np.zeros_like(self.validAct_2D).astype(float)
-            temp[self.validAct_2D] = np.squeeze(self._coefs)
+        self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
-            self.dm_layer.cmd_2D = temp.copy()
-
-            # temp = torch.matmul(self.modes_torch, torch.tensor(self._coefs)) # matrix product between the IF and the stroke for each mode
-                        
-            # temp = temp.view(self.validAct_2D.shape[0], self.validAct_2D.shape[1]).double().numpy()
-            
-            # temp[self.validAct_2D] = np.mean(temp[self.validAct_2D])
-            self.dm_layer.OPD = sp.ndimage.zoom(temp, (self.dm_layer.D_px/self.validAct_2D.shape[0], self.dm_layer.D_px/self.validAct_2D.shape[0]), order=1)
-            # self.dm_layer.OPD = cv2.resize(temp, (self.dm_layer.D_px, self.dm_layer.D_px), interpolation=cv2.INTER_LINEAR)
-
-            with np.errstate(divide='ignore', invalid='ignore'):
-                self.dm_layer.OPD = np.where(self.gain_correction > 1e-5, self.dm_layer.OPD / self.gain_correction, 0)
-
-            # Saturate the actuation
-            self.dm_layer.OPD = self.saturateShape(self.dm_layer.OPD)
-
-        else:
-            self.logger.error('DeformableMirror::updateDMShape - Wrong value for the coefficients, only a 1D vector or a valid 2D matrix is expected.')    
-            raise ValueError('DeformableMirror::updateDMShape - Dimensions do not match to the number of valid actuators.')
+        # Saturate the actuation
+        self.dm_layer.OPD = self.saturateShape(self.dm_layer.OPD)
 
         return True
     
@@ -487,54 +496,7 @@ class DeformableMirror:
         self.misReg.update_params(elapsedTime)
 
         return True
-        
-    def modesComputation(self,i,j):
-        """
-        Compute Gaussian influence function at a given location.
-
-        Parameters
-        ----------
-        i : float
-            X center of actuator.
-        j : float
-            Y center of actuator.
-
-        Returns
-        -------
-        np.ndarray
-            Influence function as flattened array.
-        """
-        self.logger.debug('DeformableMirror::modesComputation')
-        x0 = i
-        y0 = j
-        cx = (1+self.misReg.radialScaling)*(self.validAct_2D.shape[0] /self.nAct)/np.sqrt(2*np.log(1./self.mechCoupling))
-        cy = (1+self.misReg.radialScaling)*(self.validAct_2D.shape[0] /self.nAct)/np.sqrt(2*np.log(1./self.mechCoupling))
-
-        # Radial direction of the anamorphosis
-        x      = np.linspace(0,1,self.validAct_2D.shape[0] )*self.validAct_2D.shape[0] 
-        X,Y    = np.meshgrid(x,x)
-    
-        # Compute the 2D Gaussian coefficients
-        a = 1/(2*cx**2)  
-        c = 1/(2*cy**2)
-    
-        G = self.sign * np.exp(-(a*(X-x0)**2 + c*(Y-y0)**2)/(self.validAct_2D.shape[0]/self.nAct))
-        
-        if self.flip_lr:
-            G = np.fliplr(G)
-
-        if self.flip_:
-            G = np.flip(G)
             
-        output = np.reshape(G,[1,self.validAct_2D.shape[0] **2])
-        
-        output[output < 1e-4] = 0
-
-        if self.floating_precision == 32:
-            output = np.float32(output)
-           
-        return output
-    
     def print_properties(self):
         """
         Print a summary of the DM configuration.
@@ -546,7 +508,6 @@ class DeformableMirror:
         self.logger.info('DeformableMirror::print_properties')
         self.logger.info('DeformableMirror::print_properties')
         self.logger.info('{: ^21s}'.format('Controlled Actuators')                     + '{: ^18s}'.format(str(self.nValidAct)))
-        self.logger.info('{: ^21s}'.format('CustomDM')                                 + '{: ^18s}'.format(str(self.isCustom)))
         self.logger.info('{: ^21s}'.format('Pitch')                                    + '{: ^18s}'.format(str(self.pitch))                    +'{: ^18s}'.format('[m]'))
         self.logger.info('{: ^21s}'.format('Mechanical Coupling')                      + '{: ^18s}'.format(str(self.mechCoupling))             +'{: ^18s}'.format('[%]' ))
         self.logger.info('Mis-registration:')
@@ -582,14 +543,3 @@ class DeformableMirror:
     def __del__(self):
         if not self.external_logger_flag:
             self.queue_listerner.stop()
-#        
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DM PROPERTIES %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-    # Returns the coefficients for the modes of the DM.
-    @property
-    def coefs(self):
-        return self._coefs
-    # A setter is defined to avoid unprocessed variation of the coefficient vector!
-    @coefs.setter
-    def coefs(self,val):
-        self.logger.debug('DeformableMirror::coefs')
-        self.updateDMShape(val)
