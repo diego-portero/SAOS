@@ -49,7 +49,7 @@ class DeformableMirror:
     def __init__(self,
                  telescope,
                  nActs:float,
-                 mechCoupling:float = 0.35,
+                 mechCoupling:float = 0.60,
                  coordinates:np.ndarray = None,
                  pitch:float = None,
                  modes:np.ndarray = None,
@@ -73,7 +73,7 @@ class DeformableMirror:
         nActs : float
             Number of actuators in the horizontal axis of the pupil.
         mechCoupling : float, optional
-            Coupling factor between actuators, by default 0.35.
+            Coupling factor between actuators, by default 0.60.
         coordinates : np.ndarray, optional
             Custom actuator coordinates.
         pitch : float, optional
@@ -126,7 +126,7 @@ class DeformableMirror:
         self.nActs = nActs
 
         if mechCoupling <=0:
-            raise ValueError('The value of mechanical coupling should be positive.')
+            raise ValueError('The value of mechanical coupling should be >= 0.')
         else:
             self.mechCoupling          = mechCoupling
         
@@ -164,8 +164,8 @@ class DeformableMirror:
             self.logger.error('DeformableMirror::__init__ - Unrecognized DM type, using default. Implemented are: [cartesian, radial, custom]')
             raise ValueError('Unrecognized DM type, using default.')
         
-        # Compute the interpolation weights
-        self.interp_weights, self.interp_idx = self.high_res_interpolator(self.coordinates, self.validAct) # Shepard-kind interpolation
+        # IF in high-res
+        self.actuators_IF = self.high_res_if(self.coordinates, self.validAct) 
     
     # Generation of the cartesian coordinates and mask of valid actuators using the outer pupil limit
     
@@ -201,20 +201,20 @@ class DeformableMirror:
         r = np.sqrt(X**2 + Y**2)
         
         if self.valid_act_thresh_outer is None:
-            self.valid_act_thresh_outer = self.dm_layer.D_fov/2#+self.validActThreshpercentage*self.pitch
+            self.valid_act_thresh_outer = self.dm_layer.D_fov/2+self.validActThreshpercentage*self.pitch
         
         validAct  = r <= self.valid_act_thresh_outer
         nValidAct = np.sum(validAct)
 
         return coordinates, validAct.flatten(), nValidAct
 
-    # Interpolates from a set of coordinates without requiring a specific
-    # distribution to a grid of points.
+    # Generates the set of IF for the valid actuators in the high-resolution matrix
 
-    def high_res_interpolator(self, coordinates, validActuators, k_nearest=24):
+    def high_res_if(self, coordinates, validActuators):
         """
         Generates a grid of points from a set of points distributed as indicated
-        by the coordinates matrix, without requiring any specific distribution. Uses a Shepard-kind interpolation.
+        by the coordinates matrix, without requiring any specific distribution.
+        Generates the IF in the high resolution matrix.
 
         Parameters
         ----------
@@ -222,53 +222,46 @@ class DeformableMirror:
             X and Y coordinates aranged as [nActs**2,2]
         validAct : numpy.ndarray
             Logic mask of valid actuators
-        k_nearest : optional, int            
-            Selects the k-nearest neighbourgs. By default 8.
 
         Returns
         -------
-        weights : torch.Tensor
-            Weighting matrix to perform the interpolation using the valid actuators
-        idx : torch.Tensor
-            Indices to select the k-neighbours of each point
+        actuators_IF : torch.Tensor
+            Actuators IF in high resolution
         """
         # Convert from ndarray to tensors for performance
 
         coordinates_torch = torch.as_tensor(coordinates[validActuators], dtype=torch.float32, device=self.device)
 
-        # Make a grid of points
+        # Make a grid of points --> origin in the optical axis
 
-        x    = np.linspace(-(self.dm_layer.D_fov)/2,(self.dm_layer.D_fov)/2, self.dm_layer.D_px)
-        grid_x, grid_y = np.meshgrid(x,x)
+        x = torch.linspace(
+            -self.dm_layer.D_fov / 2,
+            +self.dm_layer.D_fov / 2,
+            self.dm_layer.D_px,
+            device=self.device,
+            dtype=torch.float32
+        )
+        grid_x, grid_y = torch.meshgrid(x, x, indexing="xy")
 
-        gx = torch.as_tensor(grid_x, dtype=torch.float32, device=self.device).reshape(-1)
-        gy = torch.as_tensor(grid_y, dtype=torch.float32, device=self.device).reshape(-1)
-        grid_highres = torch.stack([gx, gy], dim=1)  # (D_px**2,2)
+        gx = grid_x.reshape(-1, 1)  # (Npix, 1)
+        gy = grid_y.reshape(-1, 1)  # (Npix, 1)
 
-        # Compute the distance between each point in the grid and the points defined by the input coordinates matrix
-        d = torch.cdist(grid_highres, coordinates_torch, p=2.0) # distance using 2-norm (euclidean distance)
-        d2 = d * d # compute the square of the distance
+        # Generate Gaussians
+        actuators_IF = torch.zeros((self.dm_layer.D_px**2,self.nValidAct), dtype=torch.float32, device=self.device)
 
-        # Select k-neighbours
-        d2k, idx = torch.topk(d2, k=k_nearest, dim=1, largest=False, sorted=False)
-
-        # Select limit distance analysing the neighbourhood
-        # distance to the farest neighbour
-        dk = torch.sqrt(d2k.max(dim=1).values)
-        ls = dk.median().clamp_min(1e-6)
-        lengthscale = float(ls.item())
+        sigma = float(self.pitch * self.mechCoupling) # mechanical coupling and variance are coupled
         
-        inv_l2 = 1.0 / (lengthscale * lengthscale)
+        inv_2sigma2 = 1.0 / (2.0 * sigma * sigma)
 
-        # Compute Gaussian kernel for the interpolation
+        dx2 = (gx - coordinates_torch[:, 0].reshape(1, -1)) ** 2  # (Npix, nAct)
+        dy2 = (gy - coordinates_torch[:, 1].reshape(1, -1)) ** 2  # (Npix, nAct)
 
-        weights = torch.exp(-0.5 * d2k * inv_l2)
+        actuators_IF = torch.exp(-(dx2 + dy2) * inv_2sigma2)
 
-        # Normalize the weights
+        col_max = actuators_IF.max(dim=0, keepdim=True).values.clamp_min(1e-12)
+        actuators_IF = actuators_IF / col_max
 
-        weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-12)
-
-        return weights, idx.to(torch.int64)
+        return actuators_IF
     
     # The DM can be considered as an atmospheric layers with discrete points actuated, which are then connected with their influence functions, 
     # shaping a continuous 2D surface. 
@@ -474,10 +467,9 @@ class DeformableMirror:
         
         self.dm_layer.cmd_1D = temp.copy()
 
-        # Apply the Shepard interpolator, with the pre-computed weights
+        # Compute the shape of the mirror using the IFs
         coefs_torch           = torch.as_tensor(val, dtype=torch.float32, device=self.device)
-        coefs_neighbourhood   = coefs_torch[self.interp_idx]
-        opd_highres           = (self.interp_weights * coefs_neighbourhood).sum(dim=1)
+        opd_highres           = torch.matmul(self.actuators_IF, coefs_torch)
 
         self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
