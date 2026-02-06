@@ -23,8 +23,20 @@ def generate_dh_modes(dm, nModes=None, useTorch=False, include_piston=False):
     for i in range(nModes):
         n, m = get_index(i+1) if include_piston else get_index(i+2)
         dh_modes[:, i] = disk_harmonic_mode(m, n, r, theta)  # Apply mask
+
+        # Remove piston
+        dh_modes[dm.validAct,i] -= np.mean(dh_modes[dm.validAct,i])
+
+        # Normalize energy to 1 --> Necessary before Gram-Schmidt
+        energy = np.sqrt(np.mean(dh_modes[dm.validAct, i]**2))
+        if energy > 0:
+            dh_modes[:,i] /= energy
     
-    dh_modes[~dm.validAct, :] = 0
+    # Gram-Schmidt orthogonalization
+    dh_modes_qr, _ =  np.linalg.qr(dh_modes[dm.validAct,:])
+
+    dh_modes[dm.validAct, :]  = dh_modes_qr
+    dh_modes[~dm.validAct, :] = 0.0
 
     # Normalize the mode between -1 and 1
 
