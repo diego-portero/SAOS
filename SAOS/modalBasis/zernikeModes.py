@@ -46,9 +46,18 @@ def get_zernikes(coordinates, validActs, nModes, Noffset):
     for j in range(nModes):
         Z, _ = Z_machine.Z_nm(j + Noffset, rho, theta, True, 'Standard')
         Z[~validActs] = 0.0
+        
+        # Remove piston
+        Z[validActs] -= np.mean(Z[validActs])
+        
+        # Normalize energy to 1
+        energy = np.sqrt(np.mean(Z[validActs]**2))
+        if energy > 0:
+            Z /= energy
+        
         # Apply the pupil mask
         zern_modes[:, j] = Z
-    
+
     return zern_modes
 
 ### --------------------------------------- ###
