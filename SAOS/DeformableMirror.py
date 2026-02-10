@@ -156,7 +156,7 @@ class DeformableMirror:
             self.coordinates, self.validAct, self.nValidAct = self.generate_cartesian_dm(nActs)
         elif typeDM == 'radial':
             self.logger.warning('DeformableMirror::__init__ - Radial DM is not yet supported in this new version, using default.')
-            self.typeDM = 'cartesian'
+            self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm(nActs)
         elif typeDM == 'custom':
             self.logger.warning('DeformableMirror::__init__ - Custon DM is not yet supported in this new version, using default.')
             self.typeDM = 'cartesian'
@@ -205,6 +205,57 @@ class DeformableMirror:
         
         validAct  = r <= self.valid_act_thresh_outer
         nValidAct = np.sum(validAct)
+
+        return coordinates, validAct.flatten(), nValidAct
+    
+    def generate_radial_dm(self, nActs):
+        """
+        Generates a distribution of radial points approximated by haxagons, 
+        and a logic mask filtering the points that are within the limits of
+        the external pupil diameter.
+
+        Parameters
+        ----------
+        nActs : int
+            Number of actuators in the square side
+
+        Returns
+        -------
+        coordinates : numpy.ndarray
+            X and Y coordinates aranged as [nActs**2,2]
+        validAct : numpy.ndarray
+            Logic mask of valid actuators
+        nValidAct : int
+            Number of valid actuators
+        """
+        # Define the vertical spacing for the actuators --> pitch applies for the 
+
+        dy = self.pitch * (np.sqrt(3) / 2) # form equilateral triangles
+
+        n_rows = int(np.ceil(2 * self.dm_layer.D_fov/2 / dy)) + 1
+
+        ys = (np.arange(n_rows) - (n_rows - 1) / 2) * dy
+
+        # Generate the coordinates following a triangular pattern
+        coordinates = []
+
+        for j, y in enumerate(ys):
+            x_offset = 0.5 * self.pitch if (j % 2) else 0.0
+            xs = np.arange(-self.dm_layer.D_fov/2 - self.pitch, self.dm_layer.D_fov/2 + self.pitch + 1e-12, self.pitch) + x_offset
+            for x in xs:
+                coordinates.append((x, y))
+
+        coordinates = np.array(coordinates, dtype=float)
+
+        # Second, define mask to obtain the valid actuators
+
+        r = np.sqrt(coordinates[:,0]**2 + coordinates[:,1]**2)
+        
+        if self.valid_act_thresh_outer is None:
+            self.valid_act_thresh_outer = self.dm_layer.D_fov/2+self.validActThreshpercentage*self.pitch
+        
+        validAct  = r <= self.valid_act_thresh_outer
+        nValidAct = np.sum(validAct)    
 
         return coordinates, validAct.flatten(), nValidAct
 
