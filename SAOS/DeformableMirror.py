@@ -134,7 +134,7 @@ class DeformableMirror:
         self.dm_layer = self.buildLayer(telescope, altitude)
 
         if pitch is None:
-            self.pitch = self.dm_layer.D_fov/(nActs-1)  # size of a subaperture
+            self.pitch = self.dm_layer.D_fov/(self.nActs-1)  # size of a subaperture
         else:
             self.pitch = pitch
         
@@ -153,10 +153,10 @@ class DeformableMirror:
         # Depending on the type of the DM, the coordinates are generated differently
         if typeDM == 'cartesian':
             # Define the coordinates
-            self.coordinates, self.validAct, self.nValidAct = self.generate_cartesian_dm(nActs)
+            self.coordinates, self.validAct, self.nValidAct = self.generate_cartesian_dm(self.nActs)
         elif typeDM == 'radial':
             self.logger.warning('DeformableMirror::__init__ - Radial DM is not yet supported in this new version, using default.')
-            self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm(nActs)
+            self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm(self.nActs)
         elif typeDM == 'custom':
             self.logger.warning('DeformableMirror::__init__ - Custon DM is not yet supported in this new version, using default.')
             self.typeDM = 'cartesian'
