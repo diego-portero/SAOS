@@ -124,11 +124,8 @@ class Sharepoint:
             for i in range(len(dm_list)):
                 dm_name = 'dm_' + str(i+1)
                 if ((iteration+1)%self.dm) == 0:
-                    topics.append(dm_name + '/2D_command')
                     topics.append(dm_name + '/1D_command')
-
-                    self.socket.send_multipart([topics[-2].encode(), pickle.dumps(dm_list[i].dm_layer.cmd_2D)])
-                    self.socket.send_multipart([topics[-1].encode(), pickle.dumps(dm_list[i].dm_layer.cmd_2D[dm_list[i].validAct_2D])])
+                self.socket.send_multipart([topics[-1].encode(), pickle.dumps(dm_list[i].dm_layer.cmd_1D[dm_list[i].validAct])])
 
         # Check Light Path dimensions:
         nNameSpaces = len(light_path)
