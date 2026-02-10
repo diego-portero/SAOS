@@ -33,6 +33,7 @@ class ScienceCam:
                  telescope,
                  lightRatio:float=50,
                  integrationTime:float=None,
+                 decimation:int=1,
                  noiseFlag:bool=False,
                  logger=None,
                  **kwargs):
@@ -53,6 +54,8 @@ class ScienceCam:
             Threshold ratio to select valid subapertures based on flux.            
         integrationTime : float, optional
             Integration time in seconds. Defaults to samplingTime.
+        decimation : int, optional
+            Decimation factor for storing results. Default is 50.            
 
         noiseFlag : bool, optional
             If True, the detector includes noise using the kwargs params/default config. By default, False.                 
@@ -95,6 +98,7 @@ class ScienceCam:
         self.fieldOfView         = fieldOfView
         self.plate_scale         = plate_scale
         self.samplingTime        = samplingTime
+        self.decimation          = decimation
         self.lightRatio          = lightRatio
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
