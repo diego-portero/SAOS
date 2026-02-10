@@ -97,7 +97,7 @@ class InteractionMatrixHandler:
                     for j in range(len(light_path_list[i].dm)):
                         for k in range(len(self.dm_scanned_list)):
                             # Compare the properties of this DM with the ones already listed
-                            if ((self.dm_scanned_list[k].nAct         == light_path_list[i].dm[j].nAct)      and
+                            if ((self.dm_scanned_list[k].nActs         == light_path_list[i].dm[j].nActs)      and
                                 (self.dm_scanned_list[k].altitude     == light_path_list[i].dm[j].altitude)  and
                                 (self.dm_scanned_list[k].nValidAct    == light_path_list[i].dm[j].nValidAct) and
                                 (self.dm_scanned_list[k].mechCoupling == light_path_list[i].dm[j].mechCoupling)):
@@ -249,11 +249,11 @@ class InteractionMatrixHandler:
         for i in range(len(self.dm_scanned_list)):
             self.logger.info(f'InteractionMatrixHandler::measure - DM {i}')
             # Get the modal basis
-            modes = self.modal_basis[i][modal_basis_per_DM[i]][:, :, :nModes_per_DM[i]]
+            modes = self.modal_basis[i][modal_basis_per_DM[i]][:, :nModes_per_DM[i]]
             # Check if the DM is at ground layer or altitude to discard TT
             if self.dm_scanned_list[i].altitude > 0:
                 self.logger.warning('InteractionMatrixHandler::measure - Be advised that TT is discarded in altitude DMs, the number of modes specified is reduced by 2.')
-                modes = modes[:,:,2:]
+                modes = modes[:,2:]
             # Initialize the IMs that will be measured
             tmp_IM_list = []
                 
@@ -262,16 +262,16 @@ class InteractionMatrixHandler:
                     tmp_IM_list.append(im_dict.copy())
                     # Fill the metadata of the matrix
                     tmp_IM_list[-1]['modalBasis'] = modal_basis_per_DM[i]
-                    tmp_IM_list[-1]['IM'] = np.zeros((self.light_path_list[k].wfs.nSignal, modes.shape[2]))
+                    tmp_IM_list[-1]['IM'] = np.zeros((self.light_path_list[k].wfs.nSignal, modes.shape[1]))
                     tmp_IM_list[-1]['slopes_units'] = 'rad' if self.light_path_list[k].wfs.unit_in_rad else 'px'
                 else:
                     tmp_IM_list.append(None)
             # Now, loop over each mode to measure the interaction matrix
-            for j in range(modes.shape[2]):
+            for j in range(modes.shape[1]):
                 if (j % 50) == 0:
-                    self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[2]}')
+                    self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[1]}')
                 # Apply the modal command to the DM
-                cmd = stroke_per_DM[i] * modes[:,:, j]
+                cmd = stroke_per_DM[i] * modes[:,j]
                 self.dm_scanned_list[i].updateDMShape(cmd)
                 # Propagate
                 Parallel(n_jobs=2, prefer="threads")(tasks)
@@ -282,7 +282,7 @@ class InteractionMatrixHandler:
 
             self.interaction_matrix_warehouse[i] = tmp_IM_list.copy()
             # Make sure that the DM is set to zero before commanding the next one
-            cmd = 0 * modes[:,:, 0]
+            cmd = 0 * modes[:,0]
             self.dm_scanned_list[i].updateDMShape(cmd)            
         return True
     
@@ -376,7 +376,7 @@ class InteractionMatrixHandler:
                     dm_subgroup = modal_group.create_group('DM' + str(self.dm_scanned_list[j].nValidAct))
                     # Then, we add the modal base and the metadata
                     dm_subgroup.create_dataset('data', data=self.modal_basis[j][self.modal_list[i]])
-                    dm_subgroup.attrs['nAct'] = self.dm_scanned_list[j].nAct
+                    dm_subgroup.attrs['nAct'] = self.dm_scanned_list[j].nActs
                     dm_subgroup.attrs['nValidAct'] = self.dm_scanned_list[j].nValidAct
        
         self.logger.info('InteractionMatrixHandler::save_IM - Saved.')        
@@ -494,7 +494,7 @@ class InteractionMatrixHandler:
                             self.logger.error(f'InteractionMatrixHandler::load_modalBasis - The number of validActs is not consistent.')
                             raise ValueError('InteractionMatrixHandler::load_modalBasis - The number of validActs is not consistent.')
 
-                        if f[self.modal_list[0]][dm_name].attrs['nAct'] != self.dm_scanned_list[i].nAct:
+                        if f[self.modal_list[0]][dm_name].attrs['nAct'] != self.dm_scanned_list[i].nActs:
                             self.logger.error(f'InteractionMatrixHandler::load_modalBasis - The number of acts is not consistent.')
                             raise ValueError('InteractionMatrixHandler::load_modalBasis - The number of acts is not consistent.')  
                         # The data is consistent, load it into the class
