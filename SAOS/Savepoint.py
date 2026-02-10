@@ -112,7 +112,7 @@ class Savepoint:
                 self.custom_create_dataset('atmosphere_layered', atm_layer_grp, iteration, getattr(data_group, layer_name).screen.scrn, mask=None)
         
         if self.dm and group_name.find('DeformableMirror')>=0:
-            self.custom_create_dataset('dm_layer', group, iteration, data_group.dm_layer.cmd_2D, mask=data_group.validAct_2D[None, ...])
+            self.custom_create_dataset('dm_layer', group, iteration, data_group.dm_layer.cmd_1D, mask=data_group.validAct[None, ...])
                 
         if self.atm_per_dir and group_name.find('LightPath')>=0:
             # Pupil mask to compute statistics
@@ -250,11 +250,11 @@ class Savepoint:
             dict_stats['std'] = np.array([np.std(data.reshape(data.shape[0], -1), axis=1)])
             dict_stats['rms'] = np.array([np.sqrt(np.mean(data.reshape(data.shape[0], -1)**2, axis=1))])
         elif data_type == 'dm_layer':
-            dict_stats['min'] = np.array([np.min(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['max'] = np.array([np.max(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['mean'] = np.array([np.mean(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['std'] = np.array([np.std(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['rms'] = np.array([np.sqrt(np.mean(data.reshape(data.shape[0], -1)[:, mask.ravel()]**2, axis=1))])
+            dict_stats['min'] = np.array([np.min(data[mask.ravel()])])
+            dict_stats['max'] = np.array([np.max(data[mask.ravel()])])
+            dict_stats['mean'] = np.array([np.mean(data[mask.ravel()])])
+            dict_stats['std'] = np.array([np.std(data[mask.ravel()])])
+            dict_stats['rms'] = np.array([np.sqrt(np.mean(data[mask.ravel()]**2))])
         elif data_type == 'slopes_1D':
             dict_stats['min'] = np.array([[np.min(data[0:data.shape[0]//2]), np.min(data[data.shape[0]//2:])]])
             dict_stats['max'] = np.array([[np.max(data[0:data.shape[0]//2]), np.max(data[data.shape[0]//2:])]])
@@ -334,7 +334,7 @@ class Savepoint:
         if data_type == 'atmosphere_layered':
             mask = None
         elif data_type == 'dm_layer':
-            mask = data_object.validAct_2D[None, ...]
+            mask = data_object.validAct[None, ...]
         else:
             mask = data_object.tel.pupil[None, ...]
         
@@ -387,7 +387,7 @@ class Savepoint:
                         self.initialize_hdf5_file(f, group_name, data_object[i], iteration)
                     else:
                         grp = f[group_name]
-                        self.append_to_dataset('dm_layer', grp, iteration, data_object[i].dm_layer.cmd_2D, data_object[i])                        
+                        self.append_to_dataset('dm_layer', grp, iteration, data_object[i].dm_layer.cmd_1D, data_object[i])                        
 
             if tag == 'lightpath':
                 light_path = data_object
