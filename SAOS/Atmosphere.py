@@ -313,7 +313,7 @@ class Atmosphere:
             self.logger.info(f"Atmosphere::load - All layers finished.")     
     
 
-            return False
+            return True
 
     def update(self):
         """
