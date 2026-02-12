@@ -59,7 +59,6 @@ class Atmosphere:
                  windDirection:list,
                  altitude:list,
                  telescope,
-                 mode:float=1,
                  logger=None):
         """
         Initialize an Atmosphere object representing layered atmospheric turbulence.
