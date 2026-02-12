@@ -4,7 +4,6 @@ Created + major update on March 24 2025
 """
 
 from SAOS.Source import Source
-from SAOS.Asterism import Asterism
 
 import numpy as np
 from importlib.resources import files
@@ -116,18 +115,16 @@ class ExtendedSource(Source):
 
         # Finally, create an Asterism using the coordinates of the subdirections to monitor the atmosphere in those lines of sight
 
-        subDirs_stars = []
+        self.subDirs_stars = []
 
         for dirX in range(self.nSubDirs):
             for dirY in range(self.nSubDirs):
-                subDirs_stars.append(Source(optBand=self.optBand, 
+                self.subDirs_stars.append(Source(optBand=self.optBand, 
                                             magnitude=1, 
                                             coordinates=[self.subDirs_coordinates[0,dirX,dirY], self.subDirs_coordinates[1,dirX,dirY]],
                                             logger=self.logger))
-                subDirs_stars[-1].nPhoton = np.round(self.nPhoton/(self.nSubDirs*self.nSubDirs))
+                self.subDirs_stars[-1].nPhoton = np.round(self.nPhoton/(self.nSubDirs*self.nSubDirs))
         
-        self.sun_subDir_ast = Asterism(subDirs_stars)
-
         # Last step, define the 2D filter that will be used to combine the subDirs. 
         # Taken from the WideField module of DASP (Durham Adaptive Optics Simulator, Alaister Basedn et al.)
         filt_width = np.round((self.subDirs_coordinates[2,0,0])/self.img_PS).astype(int)

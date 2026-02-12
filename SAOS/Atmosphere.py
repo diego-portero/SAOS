@@ -398,7 +398,7 @@ class Atmosphere:
         list_src = []
 
         if src.tag == 'sun':
-            for subDir in src.sun_subDir_ast.src:
+            for subDir in src.subDir_stars:
                 list_src.append(subDir)
         else:
             list_src.append(src)
