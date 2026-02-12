@@ -155,7 +155,6 @@ class DeformableMirror:
             # Define the coordinates
             self.coordinates, self.validAct, self.nValidAct = self.generate_cartesian_dm(self.nActs)
         elif typeDM == 'radial':
-            self.logger.warning('DeformableMirror::__init__ - Radial DM is not yet supported in this new version, using default.')
             self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm(self.nActs)
         elif typeDM == 'custom':
             self.logger.warning('DeformableMirror::__init__ - Custon DM is not yet supported in this new version, using default.')
@@ -164,8 +163,16 @@ class DeformableMirror:
             self.logger.error('DeformableMirror::__init__ - Unrecognized DM type, using default. Implemented are: [cartesian, radial, custom]')
             raise ValueError('Unrecognized DM type, using default.')
         
-        # IF in high-res
-        self.actuators_IF = self.high_res_if(self.coordinates, self.validAct) 
+        # Compute scaling for the RBF Interpolation based on Gaussian function
+        self.epsilon = np.sqrt(-1*np.log(self.mechCoupling))/self.pitch
+
+        # High resolution meshgrid
+        x    = np.linspace(-(self.dm_layer.D_fov)/2,(self.dm_layer.D_fov)/2, self.dm_layer.D_px)
+        X, Y = np.meshgrid(x,x)
+
+        self.high_res_coords = np.array([X.flatten(), Y.flatten()]).T
+        # Compute the interpolator for the shape fitting
+        self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
     
     # Generation of the cartesian coordinates and mask of valid actuators using the outer pupil limit
     
@@ -259,61 +266,46 @@ class DeformableMirror:
 
         return coordinates, validAct.flatten(), nValidAct
 
-    # Generates the set of IF for the valid actuators in the high-resolution matrix
+    # Generates a Gaussian RBF Interpolant to compute the high resolution function imposing the mirror mechanics
 
-    def high_res_if(self, coordinates, validActuators):
+    def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
         """
-        Generates a grid of points from a set of points distributed as indicated
-        by the coordinates matrix, without requiring any specific distribution.
-        Generates the IF in the high resolution matrix.
+        Generates a distribution of radial points approximated by haxagons, 
+        and a logic mask filtering the points that are within the limits of
+        the external pupil diameter.
 
         Parameters
         ----------
-        coordinates : numpy.ndarray
-            X and Y coordinates aranged as [nActs**2,2]
-        validAct : numpy.ndarray
-            Logic mask of valid actuators
+        input_points : np.ndarray
+            Coordinates of the mirror actuators
+        output_points : np.ndarray
+            Coordinates of the high resolution output grid
+        epsilon : float
+            Radial scaling factor for the Gaussian fitting
+        smoothing : 
 
         Returns
         -------
-        actuators_IF : torch.Tensor
-            Actuators IF in high resolution
+        L : torch.Tensor
+            Triangular Cholesky descomposition matrix
+        phi_eval : torch.Tensor
+            Inteprolator based on output - input Euclidean distance
         """
-        # Convert from ndarray to tensors for performance
 
-        coordinates_torch = torch.as_tensor(coordinates[validActuators], dtype=torch.float32, device=self.device)
+        input_points_torch  = torch.as_tensor(input_points,  device=self.device, dtype=torch.float64)
+        output_points_torch = torch.as_tensor(output_points, device=self.device, dtype=torch.float64)
 
-        # Make a grid of points --> origin in the optical axis
+        eucl_distance = torch.cdist(input_points_torch, input_points_torch) 
+        Phi = torch.exp(-(epsilon * eucl_distance) ** 2)
 
-        x = torch.linspace(
-            -self.dm_layer.D_fov / 2,
-            +self.dm_layer.D_fov / 2,
-            self.dm_layer.D_px,
-            device=self.device,
-            dtype=torch.float32
-        )
-        grid_x, grid_y = torch.meshgrid(x, x, indexing="xy")
+        L = torch.linalg.cholesky(Phi)
 
-        gx = grid_x.reshape(-1, 1)  # (Npix, 1)
-        gy = grid_y.reshape(-1, 1)  # (Npix, 1)
+        D_eval = torch.cdist(output_points_torch, input_points_torch)
 
-        # Generate Gaussians
-        actuators_IF = torch.zeros((self.dm_layer.D_px**2,self.nValidAct), dtype=torch.float32, device=self.device)
+        phi_eval = torch.exp(-(epsilon * D_eval) ** 2)
 
-        sigma = float(self.pitch * self.mechCoupling) # mechanical coupling and variance are coupled
-        
-        inv_2sigma2 = 1.0 / (2.0 * sigma * sigma)
+        return L, phi_eval
 
-        dx2 = (gx - coordinates_torch[:, 0].reshape(1, -1)) ** 2  # (Npix, nAct)
-        dy2 = (gy - coordinates_torch[:, 1].reshape(1, -1)) ** 2  # (Npix, nAct)
-
-        actuators_IF = torch.exp(-(dx2 + dy2) * inv_2sigma2)
-
-        col_max = actuators_IF.max(dim=0, keepdim=True).values.clamp_min(1e-12)
-        actuators_IF = actuators_IF / col_max
-
-        return actuators_IF
-    
     # The DM can be considered as an atmospheric layers with discrete points actuated, which are then connected with their influence functions, 
     # shaping a continuous 2D surface. 
     def buildLayer(self, telescope, altitude):
@@ -518,9 +510,12 @@ class DeformableMirror:
         
         self.dm_layer.cmd_1D = temp.copy()
 
-        # Compute the shape of the mirror using the IFs
-        coefs_torch           = torch.as_tensor(val, dtype=torch.float32, device=self.device)
-        opd_highres           = torch.matmul(self.actuators_IF, coefs_torch)
+        # Compute the shape of the mirror using the RBF interpolator
+        coefs_torch           = torch.as_tensor(val, dtype=torch.float64, device=self.device).unsqueeze(1)
+
+        W = torch.cholesky_solve(coefs_torch, self.L_interp)
+
+        opd_highres = (self.phi_eval @ W).squeeze(1)
 
         self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
