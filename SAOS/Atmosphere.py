@@ -111,6 +111,25 @@ class Atmosphere:
         self.fov      = telescope.fov
         self.fov_rad  = telescope.fov_rad
         
+        # Sanity check
+        if len(self.windSpeed) < self.nLayer:
+            self.logger.error('Atmosphere::__init - Wind speed list size is smaller than the number of layers')
+            raise ValueError('Wind speed list size is smaller than the number of layers')
+        elif len(self.windSpeed) > self.nLayer:
+            self.logger.warning('Atmosphere::__init - Wind speed list size is larger than the number of layers. Only the first layers are considered.')
+        
+        if len(self.windDirection) < self.nLayer:
+            self.logger.error('Atmosphere::__init - Wind direction list size is smaller than the number of layers')
+            raise ValueError('Wind direction list size is smaller than the number of layers')
+        elif len(self.windDirection) > self.nLayer:
+            self.logger.warning('Atmosphere::__init - Wind direction list size is larger than the number of layers. Only the first layers are considered.')
+
+        if len(self.altitude) < self.nLayer:
+            self.logger.error('Atmosphere::__init - Altitude list size is smaller than the number of layers')
+            raise ValueError('Altitude list size is smaller than the number of layers')
+        elif len(self.altitude) > self.nLayer:
+            self.logger.warning('Atmosphere::__init - Altitude list size is larger than the number of layers. Only the first layers are considered.')            
+
     def initializeAtmosphere(self, randomState=None):
         """
         Initialize the atmosphere layers and associate them with a telescope.
