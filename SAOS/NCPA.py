@@ -106,28 +106,6 @@ class NCPA:
        
         return self.ncpa_opd
     
-    def getCurrentVibrations(self, iteration):
-        """
-        Return the vibrations for the iteration asked.
-
-        Parameters
-        ----------
-        iteration : int
-            Iteration of the AO simulation. If iteration is larger than
-            the temporal sequence of the vibrations, the method wraps-around.
-
-        Returns
-        -------
-        np.ndarray
-           Vibration combining X-Y vibrations for the given iteration
-        """        
-        if (iteration > len(self.x_vibrations_stroke)) or (iteration > len(self.x_vibrations_stroke)):
-            self.logger.warning('Vibration::getCurrentVibrations - The length of the vibrations array is smaller than the simulation window. Wrapping-around.')
-            iteration = iteration % np.minimum(len(self.x_vibrations_stroke), len(self.y_vibrations_stroke))
-        
-        opd_vibrations = self.x_vibrations_stroke[iteration]*self.x_mode + self.y_vibrations_stroke[iteration]*self.y_mode
-        
-        return opd_vibrations
 
     def setup_logging(self, logging_level=logging.WARNING):
         #
