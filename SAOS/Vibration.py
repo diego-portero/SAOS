@@ -65,8 +65,13 @@ class Vibration:
 
         Returns
         -------
-        bool
-            True if loaded successfully, False otherwise.
+        np.ndarray
+            X-axis vibrations
+        np.ndarray
+            Y-axis vibrations
+        float
+            Sampling time of the vibration sequence
+            
         """
         self.logger.debug('Vibration::load')
 
@@ -100,7 +105,7 @@ class Vibration:
            Vibration combining X-Y vibrations for the given iteration
         """        
         if (iteration > len(self.x_vibrations_stroke)) or (iteration > len(self.x_vibrations_stroke)):
-            self.logger.warning('Vibration::getCurrentVibrations - The length of the vibrations array is smaller that the simulation window. Wrapping-around.')
+            self.logger.warning('Vibration::getCurrentVibrations - The length of the vibrations array is smaller than the simulation window. Wrapping-around.')
             iteration = iteration % np.minimum(len(self.x_vibrations_stroke), len(self.y_vibrations_stroke))
         
         opd_vibrations = self.x_vibrations_stroke[iteration]*self.x_mode + self.y_vibrations_stroke[iteration]*self.y_mode
