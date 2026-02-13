@@ -36,14 +36,16 @@ class LocalSeeing:
         
         # Load local seeing sequence
 
-        self.localSeeing_input, self.Ts = self.load(source_file)
+        temp_buffer, self.Ts = self.load(source_file)
 
-        if self.localSeeing_input.shape[0] != telescope.pupil.shape[0]:
+        if temp_buffer.shape[0] != telescope.pupil.shape[0]:
             self.logger.warning('LocalSeeing - The array resolution is different from the telescope\'s. Interpolating, may introduce artifacs.')
+            self.localSeeing_input = np.zeros((telescope.pupil.shape[0], telescope.pupil.shape[1], temp_buffer.shape[2]))
             for i in range(self.localSeeing_input.shape[2]):
-                self.localSeeing_input[:,:,i] = cv2.resize(self.localSeeing_input[:,:,i], (telescope.pupil.shape[0], telescope.pupil.shape[1]), 
-                                                           interpolation=cv2.INTER_LINEAR) * telescope.pupil
-                
+                self.localSeeing_input[:,:,i] = cv2.resize(temp_buffer[:,:,i], (telescope.pupil.shape[0], telescope.pupil.shape[1]), 
+                                                            interpolation=cv2.INTER_LINEAR) * telescope.pupil
+        else:
+            self.localSeeing_input = temp_buffer.copy() 
         # Sampling time sanity check
         if self.Ts != telescope.samplingTime:
             self.logger.error(f'Local Seeing sampling time ({self.Ts}s) does not match the Telescope\'s sampling time ({telescope.samplingTime}s)')
@@ -96,7 +98,7 @@ class LocalSeeing:
         np.ndarray
            Local seeing OPD for the given iteration
         """        
-        if iteration > self.localSeeing_input.shape[2]:
+        if (iteration+1) > self.localSeeing_input.shape[2]:
             self.logger.warning('LocalSeeing::getCurrentOPD - The length of the local seeing array is smaller than the simulation window. Wrapping-around.')
             iteration = iteration % self.localSeeing_input.shape[2]
         
