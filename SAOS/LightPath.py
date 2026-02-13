@@ -36,41 +36,64 @@ class LightPath:
             self.logger = logger
 
         self.tag = 'lightpath'
+
+    # Initialize the buffers with the appropiate values during the initialization of the Light Pat
+    def initialize_parameters(self):
         # Process variables: updated per iteration
         # Optical Path Difference: is the difference in optical path length (OPL) between two rays of light [m]
         # IMPORTANT: DM is considered transmissive, instead of reflective, so there is no need to multiply by 2
-        # the physical displacemente of the actuators to take into account the go-and-return path.
-        self.atmosphere_opd = None # in [m]
-        self.atmosphere_phase = None # in [rad]
+        # the physical displacement of the actuators to take into account the go-and-return path.
+
+        # Null buffer
+        null_buffer = np.zeros_like(self.tel.pupil, dtype=np.float32)
+
+        self.vibration_opd   = null_buffer.copy() # in [m]
+        self.vibration_phase = null_buffer.copy() # in [rad]
+
+        self.localSeeing_opd   = null_buffer.copy() # in [m]
+        self.localSeeing_phase = null_buffer.copy() # in [rad]        
         
-        self.dm_opd = None # in [m]
-        self.dm_phase = None # in [rad]
+        self.atmosphere_opd   = null_buffer.copy() # in [m]
+        self.atmosphere_phase = null_buffer.copy() # in [rad]
+        
+        self.dm_opd   = null_buffer.copy() # in [m]
+        self.dm_phase = null_buffer.copy() # in [rad]
 
-        # The OPD and phase that reaches the WFS: atm + dm
-        self.wfs_opd = None # in [m]
-        self.wfs_phase = None # in [rad]
+        # The OPD and phase that reaches the WFS: atm + vibration + localSeeing + dm
+        self.wfs_opd   = null_buffer.copy() # in [m]
+        self.wfs_phase = null_buffer.copy() # in [rad]
 
-        self.ncpa_opd = None # in [m]
-        self.ncpa_phase = None # in [rad]
+        if self.ncpa:
+            self.ncpa_opd    = self.ncpa.getPhase() # in [m]
+            self.ncpa_phase *= (2*np.pi/self.src.wavelength) # in [rad]
+        else:
+            self.ncpa_opd   = null_buffer.copy() # in [m]
+            self.ncpa_phase = null_buffer.copy() # in [rad]
 
-        # The OPD and phase that reaches the science camera: atm + dm + ncpa
-        self.sci_opd = None # in [m]
-        self.sci_phase = None # in [rad]
+        # The OPD and phase that reaches the science camera: atm + vibration + localSeeing + dm + ncpa
+        self.sci_opd   = null_buffer.copy() # in [m]
+        self.sci_phase = null_buffer.copy() # in [rad]
 
         # WFS variables
-        self.slopes_1D = None # [px] or [rad] depending on the WFS configuration
-        self.slopes_2D = None # [px] or [rad] depending on the WFS configuration
-        self.wfs_frame = None
+        if self.wfs:
+            self.slopes_1D = np.zeros(self.wfs.nSignal) # [px] or [rad] depending on the WFS configuration
+            self.slopes_2D = np.zeros((2*self.wfs.nSubap, self.wfs.nSubap)) # [px] or [rad] depending on the WFS configuration
+            self.wfs_frame = None
+
+            # Error buffer --> the controller will access this variable, that contains a buffer of the last N samples to provide the error inputs when delays are simulated
+            self.error_measurement = np.zeros((self.slopes_1D.shape[0], self.delay+1)) # [px] or [rad] depending on the WFS configuration 
         
         # Science variables
-        self.sci_frame = None # Frame, noise free and of exposure equivalent to 1 sampling cycle. Normalize so that sum of energy is 1.
-        self.long_exposure_frame = None # Frame of exposure setup by the user. Can be noisy (user-config). The frame is scaled by the number of photons.
-        self.long_exp_cumulative = []
-        self.decimation_counter = 0
+        if self.sci:
+            self.sci_frame = None # Frame, noise free and of exposure equivalent to 1 sampling cycle. Normalize so that sum of energy is 1.
+            self.long_exposure_frame = None # Frame of exposure setup by the user. Can be noisy (user-config). The frame is scaled by the number of photons.
+            self.long_exp_cumulative = []
+            self.decimation_counter = 0
 
-    # An optical path is defiend, at least, by the source object emitting the light, the atmosphere and the telescope.
-    # Optionally, the telescope can have deformable mirror(s), a wavefront sensor, ncpa and a science camera
-    def initialize_path(self, src, atm, tel, dm=None, wfs=None, ncpa=None, sci=None):
+
+    # An optical path is defiend, at least, by the source object emitting the light and the telescope.
+    # Optionally, we can simulate vibrations, local seeing, atmosphere, deformable mirror(s), a wavefront sensor, ncpa and a science camera. 
+    def initialize_path(self, src, tel, atm=None, dm=None, wfs=None, ncpa=None, sci=None, vibration=None, delay=0, localSeeing=None):
         """
         Define and configure the optical path with all components.
 
@@ -78,18 +101,24 @@ class LightPath:
         ----------
         src : Source
             Light source (NGS, LGS, or Sun).
-        atm : Atmosphere
-            Atmospheric model.
         tel : Telescope
             Telescope instance.
+        atm : Atmosphere, optional
+            Atmospheric model.        
         dm : DeformableMirror or list, optional
             Deformable mirrors in the path.
         wfs : ShackHartmann, optional
             Wavefront sensor.
-        ncpa : object, optional
+        ncpa : NCPA, optional
             Non-common path aberration object.
-        sci : object, optional
+        sci : Science camera, optional
             Science detector.
+        vibration : Vibration source, optional
+            Vibration object.
+        delay : int, optional
+            Light Path delay in samples.
+        localSeeing : Local Seeing, optional
+            Local Seeing object
 
         Returns
         -------
@@ -99,11 +128,14 @@ class LightPath:
         self.logger.debug('LightPath::initialize_path')
         # Assign the objects to class attributes
         # The objects cannot be affected by paralell processing, their inner set of parameters must be modified externally at the main thread
+        # Mandatory objects: source and telescope
         self.src = src
-        self.atm = atm
         self.tel = tel
 
-        # Now, the optional objects
+        # Atmosphere
+        self.atm = atm
+
+        # Mirror object(s)
         if dm is None:
             self.dm = None
         else:
@@ -112,9 +144,19 @@ class LightPath:
             else:
                 self.dm = [dm]
         
+        # Sensor objects
+
         self.wfs = wfs
-        self.ncpa = ncpa
         self.sci = sci
+        # Special disturbance object
+
+        self.vibration   = vibration
+        self.localSeeing = localSeeing
+        self.ncpa        = ncpa
+
+        # Temporal management variables
+        self.delay = int(np.round(delay))
+        self.iteration = 0
 
         self.logger.debug('LightPath::initialize_path - Path initialized')
         return True
@@ -122,44 +164,55 @@ class LightPath:
     # This method propagates the light through the optical path, updating the variables contained within this class
     # The main process will call this method during a simualtion to update the metrics, its execution is thread-safe
     # Parameters:
-    # parallel_atm: if True, the atmosphere method getOPD is executed in parallel with the each DMs getOPD
+    # temporal_tick: if True, advances the time in the simulation
     # parallel_dms: if True, each DM getOPD is executed in parallel
     # interaction_matrix: if True, the Atmosphere is not added to the DM OPD during the IM measurement
-    def propagate(self, parallel_atm=False, parallel_dms=False, interaction_matrix=False, compute_sci_img=True):
+    def propagate(self, temporal_tick, parallel_dms=False, interaction_matrix=False):
         """
         Simulate light propagation through the configured optical path.
 
         Parameters
         ----------
-        parallel_atm : bool, optional
-            If True, compute atmosphere OPD in parallel.
+        temporal_tick : bool
+            If True, the simulation time advances 1 sample.
+        interaction_matrix : bool, optional
+            If True, disable atmosphere during propagation (used for IM calibration).            
         parallel_dms : bool, optional
             If True, compute DMs in parallel.
-        interaction_matrix : bool, optional
-            If True, disable atmosphere during propagation (used for IM calibration).
-
         Returns
         -------
         bool
             True if propagation was successful.
         """
         self.logger.debug('LightPath::propagate')
-
-        ## The first two tasks consist of getting the effect of the atmosphere and DMs on the light
-        tasks  = []
-
-        # Prepare the parallel processing
-        if parallel_atm and (not interaction_matrix):
-            parallel_dms = True
-            tasks.append(delayed(self.atm.getOPD)(self.src))
+        ## Vibrations
+        if (not interaction_matrix) and (self.vibration is not None):
+            self.vibration_opd = self.vibration.getCurrentVibrations(self.iteration)
+            self.vibration_phase = self.vibration_opd * (2*np.pi/self.src.wavelength)
+        else:
+            self.vibration_opd   *= 0
+            self.vibration_phase *= 0
         
-        elif (not parallel_atm) and (not interaction_matrix):
+        ## Local seeing
+        if (not interaction_matrix) and (self.localSeeing is not None):
+            self.localSeeing_opd = self.localSeeing.getCurrentOPD(self.iteration)
+            self.localSeeing_phase = self.localSeeing_opd * (2*np.pi/self.src.wavelength)
+        else:
+            self.localSeeing_opd   *= 0
+            self.localSeeing_phase *= 0
+
+        ## Project the atmosphere
+     
+        if (not interaction_matrix) and (self.atm is not None):
             self.atmosphere_opd = self.atm.getOPD(self.src)
             self.atmosphere_phase = self.atmosphere_opd * (2 * np.pi /self.src.wavelength)
         else: # Avoid interacting with the atmosphere while the IM is being measured
-            self.atmosphere_opd = 0
+            self.atmosphere_opd   *= 0
+            self.atmosphere_phase *= 0
 
+        # Project the DM
         if self.dm is not None:
+            tasks = []
             nthreads = 1
 
             if parallel_dms == True:
@@ -176,23 +229,17 @@ class LightPath:
             self.dm_phase = []
 
             for i in range(len(opd_results)):
-                if i == 0 and parallel_atm and (not interaction_matrix):
-                    self.atmosphere_opd = opd_results[i].copy()
-                    self.atmosphere_phase = self.atmosphere_opd * (2 * np.pi /self.src.wavelength)
-                else:
-                    self.dm_opd.append(opd_results[i][0].copy())
-                    self.dm_phase.append(opd_results[i][1].copy())
+                self.dm_opd.append(opd_results[i][0].copy())
+                self.dm_phase.append(opd_results[i][1].copy())
         else:
-            # Compute the Atmosphere OPD and Phase
-            opd_results = Parallel(n_jobs=len(tasks), prefer="threads")(tasks)
-            self.atmosphere_opd = opd_results[0].copy()
-            self.atmosphere_phase = self.atmosphere_opd * (2 * np.pi /self.src.wavelength)
-            self.dm_opd   = np.zeros_like(self.atmosphere_opd)
-            self.dm_phase = np.zeros_like(self.atmosphere_phase)
+            # Set DM OPD and phase to zero
+            self.dm_opd   *= 0
+            self.dm_phase *= 0
 
         # Combine the OPD before reaching the WFS
+        # Note that for the IM measuring, atmosphere_opd and the vibration_opd are 0
 
-        self.wfs_opd = self.atmosphere_opd + np.sum(self.dm_opd, axis=0) # Note that for the IM measuring, atmosphere_opd is 0
+        self.wfs_opd = self.vibration_opd + self.localSeeing_opd + self.atmosphere_opd + np.sum(self.dm_opd, axis=0)
         self.wfs_opd *= self.tel.pupil # apply pupil mask to the OPD
 
         self.wfs_phase = self.wfs_opd * (2 * np.pi /self.src.wavelength)
@@ -201,18 +248,16 @@ class LightPath:
         if self.wfs is not None:
             self.slopes_1D, self.slopes_2D, self.wfs_frame = self.wfs.wfs_measure(self.wfs_phase, self.src)
 
+            self.error_measurement[:, (self.iteration+1)%self.error_measurement.shape[1]] = self.slopes_1D.copy()
+
         # If there are NCPA, add them to the OPD
-        # TODO: NCPA class must be upgrade to match the new scheme. It shall return a phase in the pupil plane using the projection of the src as the DMs
-        if self.ncpa is not None:
-            self.sci_opd = self.wfs_opd + self.ncpa_opd
-            self.sci_opd *= self.tel.pupil # apply pupil mask to the OPD
-        else:
-            self.sci_opd = np.copy(self.wfs_opd)
+        self.sci_opd = self.wfs_opd + self.ncpa_opd
+        self.sci_opd *= self.tel.pupil # apply pupil mask to the OPD
         
         self.sci_phase = self.sci_opd * (2 * np.pi /self.src.wavelength)
 
-        # Generate the Science frame, if defined
-        if (self.sci is not None) and compute_sci_img:
+        # Generate the Science frame, if the time advances
+        if (self.sci is not None) and (not interaction_matrix) and (temporal_tick):
             get_frame = False
             # Check Science cam decimation
             if self.sci.decimation > 0:
@@ -253,7 +298,34 @@ class LightPath:
                 self.sci_frame = None
                 self.long_exposure_frame = None
         
+        # Advance the simulation time, if required
+        if temporal_tick:
+            self.iteration += 1
+        
         return True
+    
+    def get_wavefront_error(self):
+        """
+        Simulate light propagation through the configured optical path.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        np.ndarray
+            Measurements delayed or array of zeros if there are not enough measurements. False if there is not WFS.
+        """
+
+        if self.wfs:
+            if (self.iteration-self.delay) >= 0:
+                index = (self.iteration - self.delay) % self.error_measurement.shape[1]
+                return self.error_measurement[index]
+            else:
+                return np.zeros_like(self.slopes_1D)
+        else:
+            return False
+
     
     def setup_logging(self, logging_level=logging.WARNING):
         #
