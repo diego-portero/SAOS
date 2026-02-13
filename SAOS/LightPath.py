@@ -65,7 +65,7 @@ class LightPath:
 
         if self.ncpa:
             self.ncpa_opd    = self.ncpa.getPhase() # in [m]
-            self.ncpa_phase *= (2*np.pi/self.src.wavelength) # in [rad]
+            self.ncpa_phase  = self.ncpa_opd * (2*np.pi/self.src.wavelength) # in [rad]
         else:
             self.ncpa_opd   = null_buffer.copy() # in [m]
             self.ncpa_phase = null_buffer.copy() # in [rad]
@@ -158,6 +158,8 @@ class LightPath:
         self.delay = int(np.round(delay))
         self.iteration = 0
 
+        # Initialize the buffers
+        self.initialize_parameters()
         self.logger.debug('LightPath::initialize_path - Path initialized')
         return True
     
