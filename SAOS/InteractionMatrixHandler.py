@@ -244,7 +244,7 @@ class InteractionMatrixHandler:
         tasks = []
 
         for i in range(len(self.light_path_list)):
-            tasks.append(delayed(self.light_path_list[i].propagate)(True, False, True, False))
+            tasks.append(delayed(self.light_path_list[i].propagate)(temporal_tick=False, interaction_matrix=True))
 
         for i in range(len(self.dm_scanned_list)):
             self.logger.info(f'InteractionMatrixHandler::measure - DM {i}')
