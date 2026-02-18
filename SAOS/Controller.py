@@ -76,15 +76,11 @@ class Controller:
         self.decay = kwargs.get('decay', 0.0)
         self.ki = kwargs.get('ki', 0.0)
 
-        # Run the initialization of the controller
-        self.initializeController(self.controllerType)
         # Run the initialization of the reconstructor
-        self.reconstructor, self.mask = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)        
-
-    def initializeController(self, controllerType):
-
-        return True
-    
+        self.reconstructor, self.modal_basis, self.mask = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)
+        # Run the initialization of the controller
+        self.initializeController(self.controllerType, self.reconstructor)
+   
     def initializeReconstructor(self, reconstructionMethod, interactionMatrix):
         self.logger.info('Controller::initializeReconstructor - Computing the reconstructor.')
         t0 = time.time()
@@ -94,12 +90,12 @@ class Controller:
         nDMs = len(interactionMatrix.interaction_matrix_warehouse)
 
         if nDMs < 1:
-            raise ValueError('Number of DMs detected are less than 0.')
+            raise ValueError('Number of DMs detected are less than 1.')
         
         nLPs = len(interactionMatrix.interaction_matrix_warehouse)
 
         if nLPs < 1:
-            raise ValueError('Number of LPs detected are less than 0.')
+            raise ValueError('Number of LPs detected are less than 1.')
         
         mask = np.zeros((nDMs, nLPs),dtype=bool)
 
@@ -110,6 +106,15 @@ class Controller:
                 if interactionMatrix.interaction_matrix_warehouse[i][j] is not None:
                     mask[i, j] = True
 
+        # Get modal basis
+        modal_basis = []
+        for i in range(nDMs):
+            for j in range(nLPs):
+                if interactionMatrix.interaction_matrix_warehouse[i][j] is not None:
+                    # The modal basis is common for each DM
+                    modal_basis_type = interactionMatrix.interaction_matrix_warehouse[i][j]['modalBasis']
+                    modal_basis.append(torch.as_tensor(interactionMatrix.modal_basis[i][modal_basis_type], dtype=torch.float64, device=self.device))
+                    break
         # Now, define the reconstruction matrices for each DM
 
         reconstructor = []
@@ -121,7 +126,7 @@ class Controller:
                     # Append the IMs to shape one large matrix of size nValidAct x nSignals
                     interaction_matrix_per_DM.append(interactionMatrix.interaction_matrix_warehouse[i][j]['IM'])
             # Compute the reconstructor
-            interaction_matrix_per_DM = torch.as_tensor(np.array(interaction_matrix_per_DM), dtype=torch.float32, device=self.device).squeeze()
+            interaction_matrix_per_DM = torch.as_tensor(np.array(interaction_matrix_per_DM), dtype=torch.float64, device=self.device).squeeze()
             if reconstructionMethod == 'inversion':
                 temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond)
             elif reconstructionMethod == 'tikhonov':
@@ -133,10 +138,63 @@ class Controller:
 
         self.logger.info(f'Controller::initializeReconstructor - Reconstruction took {time.time()-t0}[s]')
 
-        return reconstructor, mask
+        return reconstructor, modal_basis, mask
+    
+    def initializeController(self, controllerType, reconstructor):
+
+        if controllerType == 'leaky':
+            self.command_previous = [torch.zeros((reconstructor[i].shape[0],1), dtype=torch.float64, device=self.device) for i in range(len(reconstructor))]
+        elif controllerType == 'forwardPI' or controllerType == 'backwardPI':
+            self.command_previous = [torch.zeros((reconstructor[i].shape[0],1), dtype=torch.float64, device=self.device) for i in range(len(reconstructor))]
+            self.error_previous = [torch.zeros((reconstructor[i].shape[0],1), dtype=torch.float64, device=self.device) for i in range(len(reconstructor))]
+        else:
+            self.logger.error('Controller::initializeController - Unknown controller')
+            raise ValueError('Unknown controller.')
+        return True
 
     def computeControlAction(self, lightPaths):
-        return True
+
+        # Get the combined measurement array for each DM
+        error = []
+        for i in range(len(self.reconstructor)):
+            combined_slopes = []
+
+            for j in range(len(lightPaths)):
+                if self.mask[i,j]:
+                    combined_slopes.append(lightPaths[j].get_wavefront_error())
+            
+            # Convert to torch
+            error.append((-1)*torch.as_tensor(np.array(combined_slopes).T, dtype=torch.float64, device=self.device)) # -1 for the feedback
+        
+        # Compute the DM command
+        modal_error = []
+        modal_cmd = []
+
+        for i in range(len(self.reconstructor)):
+            modal_error.append(self.reconstructor[i]@error[i])
+
+            if self.controllerType == 'leaky':
+                modal_cmd.append(self.gain*modal_error[i] + self.decay * self.command_previous[i])
+            elif self.controllerType == 'forwardPI':
+                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*self.samplingTime*self.error_previous[i])
+            elif self.controllerType == 'backwardPI':
+                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*self.samplingTime*modal_error[i])            
+
+        # Compute the DM command
+        dm_cmd = []
+
+        for i in range(len(self.reconstructor)):
+            dm_cmd.append(self.modal_basis[i] @ modal_cmd[i])
+
+        # Update history buffers for the next iteration
+
+        if self.controllerType == 'leaky':
+            self.command_previous = modal_cmd.copy()
+        elif self.controllerType == 'forwardPI' or self.controllerType == 'backwardPI':
+            self.command_previous = modal_cmd.copy()
+            self.error_previous = modal_error.copy()
+
+        return dm_cmd
 
     def setup_logging(self, logging_level=logging.WARNING):
         #
