@@ -145,7 +145,7 @@ class DeformableMirror:
             self.misReg=misReg            
 
         self.valid_act_thresh_outer = valid_act_thresh_outer
-        self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.7533)
+        self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.0) # Dasp uses 0.7533, but the border are not seen well, which inestabilizes the loop.
         self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]      
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -155,7 +155,7 @@ class DeformableMirror:
             # Define the coordinates
             self.coordinates, self.validAct, self.nValidAct = self.generate_cartesian_dm(self.nActs)
         elif typeDM == 'radial':
-            self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm(self.nActs)
+            self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm()
         elif typeDM == 'custom':
             self.logger.warning('DeformableMirror::__init__ - Custon DM is not yet supported in this new version, using default.')
             self.typeDM = 'cartesian'
@@ -208,24 +208,21 @@ class DeformableMirror:
         r = np.sqrt(X**2 + Y**2)
         
         if self.valid_act_thresh_outer is None:
-            self.valid_act_thresh_outer = self.dm_layer.D_fov/2+self.validActThreshpercentage*self.pitch
+            self.valid_act_thresh_outer = self.dm_layer.D_fov/2 + self.validActThreshpercentage*self.pitch
         
         validAct  = r <= self.valid_act_thresh_outer
         nValidAct = np.sum(validAct)
 
         return coordinates, validAct.flatten(), nValidAct
     
-    def generate_radial_dm(self, nActs):
+    def generate_radial_dm(self):
         """
-        Generates a distribution of radial points approximated by haxagons, 
+        Generates a distribution of radial points approximated by hexagons, 
         and a logic mask filtering the points that are within the limits of
         the external pupil diameter.
 
         Parameters
         ----------
-        nActs : int
-            Number of actuators in the square side
-
         Returns
         -------
         coordinates : numpy.ndarray
@@ -259,7 +256,7 @@ class DeformableMirror:
         r = np.sqrt(coordinates[:,0]**2 + coordinates[:,1]**2)
         
         if self.valid_act_thresh_outer is None:
-            self.valid_act_thresh_outer = self.dm_layer.D_fov/2+self.validActThreshpercentage*self.pitch
+            self.valid_act_thresh_outer = self.dm_layer.D_fov/2 + self.validActThreshpercentage*self.pitch
         
         validAct  = r <= self.valid_act_thresh_outer
         nValidAct = np.sum(validAct)    
@@ -489,11 +486,10 @@ class DeformableMirror:
         """
         self.logger.debug('DeformableMirror::updateDMShape') 
 
-        if isinstance(val, np.ndarray):
-            if val.ndim > 1:
+        if isinstance(val, torch.Tensor):
+            if val.squeeze().ndim > 1:
                 self.logger.error(f'DeformableMirror::updateDMShape - Shape of the command is not supported. Expected 1D array.')                
                 raise ValueError('Shape of the command is not supported. Expected 1D array.')
-
             if val.shape[0] == self.validAct.shape[0]:
                 # Command received is 1D, without filtering the unused actuators
                 val = val[self.validAct]
@@ -503,15 +499,17 @@ class DeformableMirror:
             else:
                 self.logger.error(f'DeformableMirror::updateDMShape - Size of the command is not correct: {val.shape}.')
                 raise ValueError('Size of the command is not correct.')
+        else:
+            raise TypeError('Expected Torch Tensor.')
         
         # Fill the layer 1D command
-        temp = np.zeros_like(self.validAct, dtype=val.dtype)
-        temp[self.validAct] = val
+        temp = np.zeros_like(self.validAct, dtype=np.float32)
+        temp[self.validAct] = val.numpy().squeeze()
         
         self.dm_layer.cmd_1D = temp.copy()
 
         # Compute the shape of the mirror using the RBF interpolator
-        coefs_torch           = torch.as_tensor(val, dtype=torch.float64, device=self.device).unsqueeze(1)
+        coefs_torch           = val
 
         W = torch.cholesky_solve(coefs_torch, self.L_interp)
 
