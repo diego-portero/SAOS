@@ -274,7 +274,7 @@ class InteractionMatrixHandler:
                     self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[1]}')
                 # Apply the modal command to the DM
                 cmd = stroke_per_DM[i] * modes[:,j]
-                self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1))
+                self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)
                 # Propagate
                 Parallel(n_jobs=2, prefer="threads")(tasks)
                 # Measure the WFS slopes at the Light Path affected
@@ -285,7 +285,7 @@ class InteractionMatrixHandler:
             self.interaction_matrix_warehouse[i] = tmp_IM_list.copy()
             # Make sure that the DM is set to zero before commanding the next one
             cmd = 0 * modes[:,0]
-            self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1))            
+            self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)            
         return True
     
     def save_IM(self, filename=None):

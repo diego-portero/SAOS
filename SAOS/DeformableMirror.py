@@ -14,6 +14,8 @@ import torch
 import scipy as sp
 from joblib import Parallel, delayed
 
+import h5py
+
 import logging
 import logging.handlers
 from queue import Queue
@@ -105,6 +107,8 @@ class DeformableMirror:
                 Parameter to select a percentage of the actuator pitch to consider it valid o not.
             maxStrokePtV : float, optional
                 Maximum mechanical stroke peak-to-valley in [m]. By default 100e-6 [m].
+            dynamicModel : str, optional
+                Path to the h5 file containing the state-space model of the Deformable Mirror.
         """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
@@ -146,7 +150,8 @@ class DeformableMirror:
 
         self.valid_act_thresh_outer = valid_act_thresh_outer
         self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.0) # Dasp uses 0.7533, but the border are not seen well, which inestabilizes the loop.
-        self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]      
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]
+        self.dynamic_model_path = kwargs.get('dynamicModel', '')
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -173,6 +178,15 @@ class DeformableMirror:
         self.high_res_coords = np.array([X.flatten(), Y.flatten()]).T
         # Compute the interpolator for the shape fitting
         self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
+
+        # Load dynamic model, if specified
+        if self.dynamic_model_path != '':
+            self.dyn_A, self.dyn_B, self.dyn_C, self.dyn_D = self.load_dynamic_model(self.dynamic_model_path, telescope.samplingTime)
+        else:
+            self.dyn_A = None
+            self.dyn_B = None
+            self.dyn_C = None
+            self.dyn_D = None
     
     # Generation of the cartesian coordinates and mask of valid actuators using the outer pupil limit
     
@@ -465,12 +479,83 @@ class DeformableMirror:
         # The OPD is treated in the mulator as wavefront --> the PtV maximum is equivalent to the wavefront value
         cmd_saturated = np.clip(cmd, a_min=-self.maxStrokePtV, a_max=self.maxStrokePtV)
         return cmd_saturated
+    
+    def load_dynamic_model(self, path, samplingTime):
+        """
+        Load state-space of the deformable mirror.
+
+        Parameters
+        ----------
+        path : str
+            Path to the h5 containing the state-space.
+
+        Returns
+        -------
+        A : torch.Tensor
+            Discrete state-transition matrix
+        B : torch.Tensor
+            Discrete input-state matrix
+        C : torch.Tensor
+            Discrete state-output matrix
+        D : torch.Tensor
+            Discrete feedthrough matrix
+        """        
+
+        self.logger.debug('DeformableMirror::load_dynamic_model')
+
+
+        if not filename.endswith(".h5"):
+            filename += ".h5"        
+
+        with h5py.File(filename, 'r') as f:
+
+            A = f['A']['data'][()]
+            B = f['B']['data'][()]
+            C = f['C']['data'][()]
+            D = f['D']['data'][()]
+
+            Ts = f['A'].attrs['Ts']
+
+            if Ts != samplingTime:
+                self.logger.error('DeformableMirror::load_dynamic_model - Sampling time of the state-space does not match the simulation\'s.')
+                raise ValueError('Sampling time of the state-space does not match the simulation\'s')
+
+        self.logger.info(f"DeformableMirror::load_dynamic_model.")        
+
+        return A, B, C, D
+    
+    def applyDynamics(self, cmd):
+        """
+        Apply a state-space to the command of the mirror to obtain the temporal response of the mirror
+
+        Parameters
+        ----------
+        cmd : torch.Tensor
+            Command required from the mirror.
+
+        Returns
+        -------
+        dyn_cmd : torch.Tensor
+            Temporal command executed by the mirror.
+        """
+        self.logger.debug('DeformableMirror::applyDynamics') 
+
+        dyn_cmd = torch.zeros_like(cmd, dtype=torch.float64, device=self.device)
+
+        for i in range(cmd.shape[0]):
+            x_next = self.dyn_A@self.curr_state[i] + self.dyn_B@cmd[i]
+            dyn_cmd[i] = self.dyn_C@x_next + self.dyn_D@cmd[i]
+
+            # Update state for the next temporal iteration
+            self.curr_state[i] = x_next.copy()
+
+        return dyn_cmd        
 
     # The shape of the mirror is controlled through a set of modes that by default are zonal --> defining a typical DM. 
     # If a modal DM is defined, then the coefficients correspond to those of the modal basis.
     # Please notice that in this context, the modes do not refer to the AO control modal base but the intrinsic mechanical behaviour of the DM.
     # The shape of the mirror is computed as the matricial product of modes x coeffs -> modes [dm_layer.D_px, nValidActs], coefs [nValidActs, 1]    
-    def updateDMShape(self, val):
+    def updateDMShape(self, val, dynamicResponse=True):
         """
         Update the OPD map from the current coefficients or 2D grid.
 
@@ -508,8 +593,11 @@ class DeformableMirror:
         
         self.dm_layer.cmd_1D = temp.copy()
 
-        # Compute the shape of the mirror using the RBF interpolator
-        coefs_torch           = val
+        # Compute the shape of the mirror using the RBF interpolator and aplying the dynamics, if specified
+        if (self.dyn_A is not None) and (dynamicResponse is True):
+            coefs_torch = self.applyDynamics(val)
+        else:
+            coefs_torch           = val
 
         W = torch.cholesky_solve(coefs_torch, self.L_interp)
 
