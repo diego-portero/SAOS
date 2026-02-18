@@ -2,6 +2,7 @@ import time
 
 import numpy as np
 from joblib import Parallel, delayed
+import torch
 
 import h5py
 import os
@@ -41,7 +42,8 @@ class InteractionMatrixHandler:
             self.external_logger_flag = True
             self.logger = logger
 
-        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         # Class attributes that will be fill during execution        
         self.dm_scanned_list = None
         self.light_path_list = None
@@ -272,7 +274,7 @@ class InteractionMatrixHandler:
                     self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[1]}')
                 # Apply the modal command to the DM
                 cmd = stroke_per_DM[i] * modes[:,j]
-                self.dm_scanned_list[i].updateDMShape(cmd)
+                self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1))
                 # Propagate
                 Parallel(n_jobs=2, prefer="threads")(tasks)
                 # Measure the WFS slopes at the Light Path affected
@@ -283,7 +285,7 @@ class InteractionMatrixHandler:
             self.interaction_matrix_warehouse[i] = tmp_IM_list.copy()
             # Make sure that the DM is set to zero before commanding the next one
             cmd = 0 * modes[:,0]
-            self.dm_scanned_list[i].updateDMShape(cmd)            
+            self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1))            
         return True
     
     def save_IM(self, filename=None):
@@ -488,7 +490,7 @@ class InteractionMatrixHandler:
             # Check DMs and load!
             if len(f[self.modal_list[0]]) == len(self.dm_scanned_list):
                 for i in range(len(self.dm_scanned_list)):
-                    dm_name = 'DM' + str(self.dm_scanned_list[i].nValidAct)
+                    dm_name = 'DM' + str(i)
 
                     if dm_name in f[self.modal_list[0]].keys():
                         if f[self.modal_list[0]][dm_name].attrs['nValidAct'] != self.dm_scanned_list[i].nValidAct:
