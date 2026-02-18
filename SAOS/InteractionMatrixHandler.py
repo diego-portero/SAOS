@@ -334,9 +334,9 @@ class InteractionMatrixHandler:
                             im_subgroup.attrs['nValidAct']    = self.dm_scanned_list[j].nValidAct
                             im_subgroup.attrs['altitude']     = self.dm_scanned_list[j].altitude
                             im_subgroup.attrs['mechCoupling'] = self.dm_scanned_list[j].mechCoupling
-                            im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[i][j]['modalBasis']
+                            im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[j][i]['modalBasis']
                             # Append IM
-                            im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[i][j]['IM'])
+                            im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[j][i]['IM'])
                         
         self.logger.info('InteractionMatrixHandler::save_IM - Saved.')
     
@@ -373,7 +373,7 @@ class InteractionMatrixHandler:
                 modal_group = f.create_group(self.modal_list[i])
                 # For each modal basis, create a subgroup per DM --> The name is the number of valid acts
                 for j in range(len(self.dm_scanned_list)):
-                    dm_subgroup = modal_group.create_group('DM' + str(self.dm_scanned_list[j].nValidAct))
+                    dm_subgroup = modal_group.create_group('DM' + str(j))
                     # Then, we add the modal base and the metadata
                     dm_subgroup.create_dataset('data', data=self.modal_basis[j][self.modal_list[i]])
                     dm_subgroup.attrs['nAct'] = self.dm_scanned_list[j].nActs
@@ -431,7 +431,7 @@ class InteractionMatrixHandler:
                                 # Check the parameters
                                 if (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[j].nValidAct) and \
                                    (f[lp_match_key]['IM' + str(j)].attrs['altitude']  == self.dm_scanned_list[j].altitude) and \
-                                   (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[j].nValidAct):
+                                   (f[lp_match_key]['IM' + str(j)].attrs['nAct'] == self.dm_scanned_list[j].nActs):
                                     # We have a match with the current DM
                                     dm_match_idx = k
                                     break
@@ -441,8 +441,8 @@ class InteractionMatrixHandler:
                             raise ValueError('The DMs do not match the IM.')
                         
                         # Store the IM
-                        self.interaction_matrix_warehouse[i][j]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
-                        self.interaction_matrix_warehouse[i][j]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
+                        self.interaction_matrix_warehouse[j][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
+                        self.interaction_matrix_warehouse[j][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
             
         self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
 
