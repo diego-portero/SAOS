@@ -130,6 +130,7 @@ class Controller:
             if reconstructionMethod == 'inversion':
                 temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond)
             elif reconstructionMethod == 'tikhonov':
+                # (D.T@D + alfa*I)@D.T --> implemented through SVD to improve the stability of the inversion and the automation of alfa
                 H = interaction_matrix_per_DM
                 U, S, Vh = torch.linalg.svd(H, full_matrices=False)
                 alfa = self.beta * torch.max(S)**2
@@ -179,10 +180,12 @@ class Controller:
 
             if self.controllerType == 'leaky':
                 modal_cmd.append(self.gain*modal_error[i] + self.decay * self.command_previous[i])
+            # For the PI (forward and backward), the sampling time is removed from multiplying ki, so that ki is in a closer range to 1, 
+            # instead of having large ki values and small proportional gains
             elif self.controllerType == 'forwardPI':
-                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*self.samplingTime*self.error_previous[i])
+                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*self.error_previous[i])
             elif self.controllerType == 'backwardPI':
-                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*self.samplingTime*modal_error[i])            
+                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*modal_error[i])            
 
         # Compute the DM command
         dm_cmd = []
