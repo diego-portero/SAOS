@@ -332,6 +332,7 @@ class InteractionMatrixHandler:
                             im_subgroup = lp_group.create_group('IM' + str(j))
                             # Append DMs attributes
                             im_subgroup.attrs['nValidAct']    = self.dm_scanned_list[j].nValidAct
+                            im_subgroup.attrs['nAct']         = self.dm_scanned_list[j].nActs
                             im_subgroup.attrs['altitude']     = self.dm_scanned_list[j].altitude
                             im_subgroup.attrs['mechCoupling'] = self.dm_scanned_list[j].mechCoupling
                             im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[j][i]['modalBasis']
