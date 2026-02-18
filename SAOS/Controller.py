@@ -53,6 +53,8 @@ class Controller:
         # Define class attributes
         self.tag = 'controller'
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         self.samplingTime = telescope.samplingTime
 
         if controllerType in {'leaky', 'forwardPI', 'backwardPI'}:
@@ -107,9 +109,27 @@ class Controller:
             for j in range(nLPs):
                 if interactionMatrix.interaction_matrix_warehouse[i][j] is not None:
                     mask[i, j] = True
+
+        # Now, define the reconstruction matrices for each DM
+
+        reconstructor = []
                 
-        reconstructor = None
-        mask = None
+        for i in range(nDMs):
+            interaction_matrix_per_DM = []
+            for j in range(nLPs):
+                if mask[i,j]:
+                    # Append the IMs to shape one large matrix of size nValidAct x nSignals
+                    interaction_matrix_per_DM.append(interactionMatrix.interaction_matrix_warehouse[i][j]['IM'])
+            # Compute the reconstructor
+            interaction_matrix_per_DM = torch.as_tensor(np.array(interaction_matrix_per_DM), dtype=torch.float32, device=self.device).squeeze()
+            if reconstructionMethod == 'inversion':
+                temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond)
+            elif reconstructionMethod == 'tikhonov':
+                temp_reconstructor = torch.linalg.inv(interaction_matrix_per_DM.T@interaction_matrix_per_DM + self.alpha*torch.eye(interaction_matrix_per_DM.shape[1]))@interaction_matrix_per_DM.T
+            else:
+                self.logger.error('Controller::initializeReconstructor - Unknown reconstructor')
+                raise ValueError('Unknown reconstructor method.')
+            reconstructor.append(temp_reconstructor)
 
         self.logger.info(f'Controller::initializeReconstructor - Reconstruction took {time.time()-t0}[s]')
 
