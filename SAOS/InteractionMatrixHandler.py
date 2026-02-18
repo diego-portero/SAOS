@@ -334,9 +334,9 @@ class InteractionMatrixHandler:
                             im_subgroup.attrs['nValidAct']    = self.dm_scanned_list[j].nValidAct
                             im_subgroup.attrs['altitude']     = self.dm_scanned_list[j].altitude
                             im_subgroup.attrs['mechCoupling'] = self.dm_scanned_list[j].mechCoupling
-                            im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[i][j]['modalBasis']
+                            im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[j][i]['modalBasis']
                             # Append IM
-                            im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[i][j]['IM'])
+                            im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[j][i]['IM'])
                         
         self.logger.info('InteractionMatrixHandler::save_IM - Saved.')
     
@@ -441,8 +441,8 @@ class InteractionMatrixHandler:
                             raise ValueError('The DMs do not match the IM.')
                         
                         # Store the IM
-                        self.interaction_matrix_warehouse[i][j]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
-                        self.interaction_matrix_warehouse[i][j]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
+                        self.interaction_matrix_warehouse[j][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
+                        self.interaction_matrix_warehouse[j][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
             
         self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
 
