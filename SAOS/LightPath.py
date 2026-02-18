@@ -322,7 +322,7 @@ class LightPath:
         if self.wfs:
             if (self.iteration-self.delay) >= 0:
                 index = (self.iteration - self.delay) % self.error_measurement.shape[1]
-                return self.error_measurement[index]
+                return self.error_measurement[:, index]
             else:
                 return np.zeros_like(self.slopes_1D)
         else:
