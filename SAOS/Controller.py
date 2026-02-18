@@ -32,8 +32,8 @@ class Controller:
         **kwargs
             rcond : float
                 Percentage of the maximum singular value below witch the SV are discarded.
-            alpha : float
-                Regularisation coefficient alfa for the Tikhonov Regularisation
+            beta : float
+                Regularisation coefficient beta for the Tikhonov Regularisation: alfa = beta * (Smax**2)
             gain : float
                 Proportional gain of the Leaky and PI controllers
             decay : float
@@ -70,7 +70,7 @@ class Controller:
             raise ValueError('Unknown controller')
         
         self.rcond = kwargs.get('rcond', 0.025)
-        self.alpha = kwargs.get('alpha', 0.03) # Gonzalez-Cava et al. (2022), Laboratory Results of SCAO: getting ready for the EST MCAO
+        self.beta = kwargs.get('beta', 1e-4) # adim, adjusted through trial-error
 
         self.gain = kwargs.get('gain', 0.0)
         self.decay = kwargs.get('decay', 0.0)
@@ -130,7 +130,11 @@ class Controller:
             if reconstructionMethod == 'inversion':
                 temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond)
             elif reconstructionMethod == 'tikhonov':
-                temp_reconstructor = torch.linalg.inv(interaction_matrix_per_DM.T@interaction_matrix_per_DM + self.alpha*torch.eye(interaction_matrix_per_DM.shape[1]))@interaction_matrix_per_DM.T
+                H = interaction_matrix_per_DM
+                U, S, Vh = torch.linalg.svd(H, full_matrices=False)
+                alfa = self.beta * torch.max(S)**2
+                S_reg = S / (S**2 + alfa)
+                temp_reconstructor = Vh.T @ torch.diag(S_reg) @ U.T
             else:
                 self.logger.error('Controller::initializeReconstructor - Unknown reconstructor')
                 raise ValueError('Unknown reconstructor method.')
