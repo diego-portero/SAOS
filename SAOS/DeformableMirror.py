@@ -509,10 +509,12 @@ class DeformableMirror:
 
         with h5py.File(filename, 'r') as f:
 
-            A = f['A']['data'][()]
-            B = f['B']['data'][()]
-            C = f['C']['data'][()]
-            D = f['D']['data'][()]
+            A = torch.atleast_2d(torch.as_tensor(f['A']['data'][()], dtype=torch.float64, device=self.device))
+            B = torch.atleast_2d(torch.as_tensor(f['B']['data'][()], dtype=torch.float64, device=self.device))
+            B = B.T # so that it is a column vector, loaded by default as row
+
+            C = torch.atleast_2d(torch.as_tensor(f['C']['data'][()], dtype=torch.float64, device=self.device))
+            D = torch.atleast_2d(torch.as_tensor(f['D']['data'][()], dtype=torch.float64, device=self.device))
 
             Ts = f['A'].attrs['Ts']
 
@@ -520,7 +522,8 @@ class DeformableMirror:
                 self.logger.error('DeformableMirror::load_dynamic_model - Sampling time of the state-space does not match the simulation\'s.')
                 raise ValueError('Sampling time of the state-space does not match the simulation\'s')
 
-        self.logger.info(f"DeformableMirror::load_dynamic_model.")        
+        # Generate the null initial conditions for the state of each valid actuator
+        self.curr_state = torch.zeros((self.nValidAct, A.shape[0]), dtype=torch.float64, device=self.device)
 
         return A, B, C, D
     
@@ -542,14 +545,13 @@ class DeformableMirror:
 
         dyn_cmd = torch.zeros_like(cmd, dtype=torch.float64, device=self.device)
 
-        for i in range(cmd.shape[0]):
-            x_next = self.dyn_A@self.curr_state[i] + self.dyn_B@cmd[i]
-            dyn_cmd[i] = self.dyn_C@x_next + self.dyn_D@cmd[i]
+        x_next  = self.curr_state@self.dyn_A.T + cmd@self.dyn_B.T
+        dyn_cmd = self.curr_state@self.dyn_C.T + cmd@self.dyn_D.T
 
-            # Update state for the next temporal iteration
-            self.curr_state[i] = x_next.copy()
+        # Update state for the next temporal iteration
+        self.curr_state.copy_(x_next)
 
-        return dyn_cmd        
+        return dyn_cmd 
 
     # The shape of the mirror is controlled through a set of modes that by default are zonal --> defining a typical DM. 
     # If a modal DM is defined, then the coefficients correspond to those of the modal basis.
@@ -587,6 +589,9 @@ class DeformableMirror:
         else:
             raise TypeError('Expected Torch Tensor.')
         
+        # Ensure dimensions nValidAct,1
+        if val.ndim == 1:
+            val = val.unsqueeze(1)
         # Fill the layer 1D command
         temp = np.zeros_like(self.validAct, dtype=np.float32)
         temp[self.validAct] = val.numpy().squeeze()
