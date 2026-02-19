@@ -480,7 +480,7 @@ class DeformableMirror:
         cmd_saturated = np.clip(cmd, a_min=-self.maxStrokePtV, a_max=self.maxStrokePtV)
         return cmd_saturated
     
-    def load_dynamic_model(self, path, samplingTime):
+    def load_dynamic_model(self, filename, samplingTime):
         """
         Load state-space of the deformable mirror.
 
