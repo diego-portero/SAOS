@@ -87,12 +87,12 @@ class Controller:
 
         # Define the mask that relates the DMs with the LPs
         
-        nDMs = len(interactionMatrix.interaction_matrix_warehouse)
+        nDMs = len(interactionMatrix.interaction_matrix_warehouse) # IM warehouse has: nDms x nLPs
 
         if nDMs < 1:
             raise ValueError('Number of DMs detected are less than 1.')
         
-        nLPs = len(interactionMatrix.interaction_matrix_warehouse)
+        nLPs = len(interactionMatrix.interaction_matrix_warehouse[0])
 
         if nLPs < 1:
             raise ValueError('Number of LPs detected are less than 1.')
@@ -103,14 +103,14 @@ class Controller:
 
         for i in range(nDMs):
             for j in range(nLPs):
-                if interactionMatrix.interaction_matrix_warehouse[i][j] is not None:
+                if interactionMatrix.interaction_matrix_warehouse[i][j]['IM'] is not None:
                     mask[i, j] = True
 
         # Get modal basis
         modal_basis = []
         for i in range(nDMs):
             for j in range(nLPs):
-                if interactionMatrix.interaction_matrix_warehouse[i][j] is not None:
+                if interactionMatrix.interaction_matrix_warehouse[i][j]['IM'] is not None:
                     # The modal basis is common for each DM
                     modal_basis_type = interactionMatrix.interaction_matrix_warehouse[i][j]['modalBasis']
                     modal_basis.append(torch.as_tensor(interactionMatrix.modal_basis[i][modal_basis_type], dtype=torch.float64, device=self.device))
@@ -126,7 +126,7 @@ class Controller:
                     # Append the IMs to shape one large matrix of size nValidAct x nSignals
                     interaction_matrix_per_DM.append(interactionMatrix.interaction_matrix_warehouse[i][j]['IM'])
             # Compute the reconstructor
-            interaction_matrix_per_DM = torch.as_tensor(np.array(interaction_matrix_per_DM), dtype=torch.float64, device=self.device).squeeze()
+            interaction_matrix_per_DM = torch.as_tensor(np.vstack(interaction_matrix_per_DM), dtype=torch.float64, device=self.device).squeeze()
             if reconstructionMethod == 'inversion':
                 temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond)
             elif reconstructionMethod == 'tikhonov':
@@ -169,7 +169,7 @@ class Controller:
                     combined_slopes.append(lightPaths[j].get_wavefront_error())
             
             # Convert to torch
-            error.append((-1)*torch.as_tensor(np.array(combined_slopes).T, dtype=torch.float64, device=self.device)) # -1 for the feedback
+            error.append((-1)*torch.as_tensor(np.hstack(combined_slopes).T, dtype=torch.float64, device=self.device).unsqueeze(1)) # -1 for the feedback
         
         # Compute the DM command
         modal_error = []
@@ -191,7 +191,7 @@ class Controller:
         dm_cmd = []
 
         for i in range(len(self.reconstructor)):
-            dm_cmd.append(self.modal_basis[i] @ modal_cmd[i])
+            dm_cmd.append(self.modal_basis[i][:,:self.reconstructor[i].shape[0]] @ modal_cmd[i])
 
         # Update history buffers for the next iteration
 
