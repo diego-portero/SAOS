@@ -97,9 +97,10 @@ class InteractionMatrixHandler:
                     dm_already_listed = False
 
                     for j in range(len(light_path_list[i].dm)):
+                        # Check if the DM is in the list
                         for k in range(len(self.dm_scanned_list)):
                             # Compare the properties of this DM with the ones already listed
-                            if ((self.dm_scanned_list[k].nActs         == light_path_list[i].dm[j].nActs)      and
+                            if ((self.dm_scanned_list[k].nActs        == light_path_list[i].dm[j].nActs)     and
                                 (self.dm_scanned_list[k].altitude     == light_path_list[i].dm[j].altitude)  and
                                 (self.dm_scanned_list[k].nValidAct    == light_path_list[i].dm[j].nValidAct) and
                                 (self.dm_scanned_list[k].mechCoupling == light_path_list[i].dm[j].mechCoupling)):
@@ -108,11 +109,14 @@ class InteractionMatrixHandler:
                                 # The DM is listed, so we will simply register the relation of this DM to the Light Path analysed.
                                 tmp_dm_light_path_relation.append(k)
                                 break
+                        # If it is not, append it
                         if dm_already_listed is False:
                             # Entering here implies that the DM was not listed, so we will have to add it
                             self.dm_scanned_list.append(light_path_list[i].dm[j])
                             # Register the relation of the DM to the light path 
                             tmp_dm_light_path_relation.append(len(self.dm_scanned_list)-1)
+                        # Reset for next DM
+                        dm_already_listed = False
             # Save the DMs affecting the light path into the main matrix
             im_scan_plan.append(tmp_dm_light_path_relation)
 
@@ -241,7 +245,8 @@ class InteractionMatrixHandler:
         # Once the input parameters are defined, we proceed to measure the IM
         # Prepare the variable to store the different IMs
         im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
-        self.interaction_matrix_warehouse = [[im_dict for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
+        # nLps x mDms
+        self.interaction_matrix_warehouse = [[im_dict.copy() for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
         # Prepare the LightPaths to be parallelized
         tasks = []
 
@@ -267,7 +272,7 @@ class InteractionMatrixHandler:
                     tmp_IM_list[-1]['IM'] = np.zeros((self.light_path_list[k].wfs.nSignal, modes.shape[1]))
                     tmp_IM_list[-1]['slopes_units'] = 'rad' if self.light_path_list[k].wfs.unit_in_rad else 'px'
                 else:
-                    tmp_IM_list.append(None)
+                    tmp_IM_list.append(im_dict.copy())
             # Now, loop over each mode to measure the interaction matrix
             for j in range(modes.shape[1]):
                 if (j % 50) == 0:
@@ -408,7 +413,7 @@ class InteractionMatrixHandler:
 
         # Initialize the warehouse
         im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
-        self.interaction_matrix_warehouse = [[im_dict for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
+        self.interaction_matrix_warehouse = [[im_dict.copy() for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
 
         with h5py.File(filename, 'r') as f:
             # Loop over the light paths
@@ -432,20 +437,18 @@ class InteractionMatrixHandler:
                         for k in range(len(self.dm_scanned_list)):
                             if self.im_boolean_matrix[i,k]: # DM with an interaction with the current LP
                                 # Check the parameters
-                                if (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[j].nValidAct) and \
-                                   (f[lp_match_key]['IM' + str(j)].attrs['altitude']  == self.dm_scanned_list[j].altitude) and \
-                                   (f[lp_match_key]['IM' + str(j)].attrs['nAct'] == self.dm_scanned_list[j].nActs):
+                                if (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[k].nValidAct) and \
+                                   (f[lp_match_key]['IM' + str(j)].attrs['altitude']  == self.dm_scanned_list[k].altitude) and \
+                                   (f[lp_match_key]['IM' + str(j)].attrs['nAct'] == self.dm_scanned_list[k].nActs):
                                     # We have a match with the current DM
                                     dm_match_idx = k
-                                    break
-                        
-                        if dm_match_idx is None:
-                            self.logger.error('InteractionMatrixHandler::load_IM - The DMs do not match the IM.')
-                            raise ValueError('The DMs do not match the IM.')
-                        
-                        # Store the IM
-                        self.interaction_matrix_warehouse[j][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
-                        self.interaction_matrix_warehouse[j][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
+                                    # Store the IM
+                                    self.interaction_matrix_warehouse[dm_match_idx][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
+                                    self.interaction_matrix_warehouse[dm_match_idx][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
+                                    # Break to continue with the next IM                                    
+                                    break                        
+
+                        print('next iteration')
             
         self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
 
