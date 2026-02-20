@@ -30,15 +30,15 @@ class Controller:
         reconstructionMethod : String
             Type of reconstructor used, supported types are: {inversion, tikhonov}.        
         **kwargs
-            rcond : float
+            rcond : list of length equal to nDMs or float
                 Percentage of the maximum singular value below witch the SV are discarded.
-            beta : float
+            beta : list of length equal to nDMs or float
                 Regularisation coefficient beta for the Tikhonov Regularisation: alfa = beta * (Smax**2)
-            gain : float
+            gain : list of length equal to nDMs or float
                 Proportional gain of the Leaky and PI controllers
-            decay : float
+            decay : list of length equal to nDMs or float
                 Decay rate for the Leaky integrator
-            ki : float
+            ki : list of length equal to nDMs or float
                 Integral gain for the PI controllers            
         """        
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
@@ -57,27 +57,38 @@ class Controller:
 
         self.samplingTime = telescope.samplingTime
 
+        if reconstructionMethod in {'inversion', 'tikhonov'}:
+            self.reconstructionMethod = reconstructionMethod
+        else:
+            self.logger.error('Controller - Unknown reconstructor.')
+            raise ValueError('Unknown controller')
+
+        # Default will change to list of size nDMs once the IM is scanned
+        self.rcond = kwargs.get('rcond', 0.025)
+        self.beta = kwargs.get('beta', 1e-4) # adim, adjusted through trial-error
+
+        # Run the initialization of the reconstructor
+        self.reconstructor, self.modal_basis, self.mask = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)                
+
+        # Setup the controller
+
         if controllerType in {'leaky', 'forwardPI', 'backwardPI'}:
             self.controllerType = controllerType
         else:
             self.logger.error('Controller - Unknown controller.')
             raise ValueError('Unknown controller')
         
-        if reconstructionMethod in {'inversion', 'tikhonov'}:
-            self.reconstructionMethod = reconstructionMethod
-        else:
-            self.logger.error('Controller - Unknown reconstructor.')
-            raise ValueError('Unknown controller')
-        
-        self.rcond = kwargs.get('rcond', 0.025)
-        self.beta = kwargs.get('beta', 1e-4) # adim, adjusted through trial-error
+        self.gain = kwargs.get('gain', [0.0 for _ in range(len(self.reconstructor))])
+        self.decay = kwargs.get('decay', [0.0 for _ in range(len(self.reconstructor))])
+        self.ki = kwargs.get('ki', [0.0 for _ in range(len(self.reconstructor))])
 
-        self.gain = kwargs.get('gain', 0.0)
-        self.decay = kwargs.get('decay', 0.0)
-        self.ki = kwargs.get('ki', 0.0)
+        if len(self.gain) != len(self.reconstructor):
+            raise ValueError('The gain should be a float or a a list of size nDMs.')
+        if len(self.decay) != len(self.reconstructor):
+            raise ValueError('The decay should be a float or a a list of size nDMs.')
+        if len(self.ki) != len(self.reconstructor):
+            raise ValueError('The ki should be a float or a a list of size nDMs.')                
 
-        # Run the initialization of the reconstructor
-        self.reconstructor, self.modal_basis, self.mask = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)
         # Run the initialization of the controller
         self.initializeController(self.controllerType, self.reconstructor)
    
@@ -106,6 +117,24 @@ class Controller:
                 if interactionMatrix.interaction_matrix_warehouse[i][j]['IM'] is not None:
                     mask[i, j] = True
 
+        # Check the reconstructor parameters
+        if reconstructionMethod == 'inversion':
+            if isinstance(self.rcond, list):
+                if len(self.rcond) != nDMs:
+                    raise ValueError('Rcond parameter is expected to be a list of size equal to the number of DMs.')
+            else:
+                # Make the list copying the values
+                temp_rcond = self.rcond
+                self.rcond = [temp_rcond for _ in range(nDMs)]
+        elif reconstructionMethod == 'tikhonov':
+            if isinstance(self.beta, list):
+                if len(self.rcond) != nDMs:
+                    raise ValueError('Beta parameter is expected to be a list of size equal to the number of DMs.')
+            else:
+                # Make the list copying the values
+                temp_beta = self.beta
+                self.beta = [temp_beta for _ in range(nDMs)]      
+              
         # Get modal basis
         modal_basis = []
         for i in range(nDMs):
@@ -128,12 +157,12 @@ class Controller:
             # Compute the reconstructor
             interaction_matrix_per_DM = torch.as_tensor(np.vstack(interaction_matrix_per_DM), dtype=torch.float64, device=self.device).squeeze()
             if reconstructionMethod == 'inversion':
-                temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond)
+                temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond[i])
             elif reconstructionMethod == 'tikhonov':
                 # (D.T@D + alfa*I)@D.T --> implemented through SVD to improve the stability of the inversion and the automation of alfa
                 H = interaction_matrix_per_DM
                 U, S, Vh = torch.linalg.svd(H, full_matrices=False)
-                alfa = self.beta * torch.max(S)**2
+                alfa = self.beta[i] * torch.max(S)**2
                 S_reg = S / (S**2 + alfa)
                 temp_reconstructor = Vh.T @ torch.diag(S_reg) @ U.T
             else:
@@ -179,13 +208,13 @@ class Controller:
             modal_error.append(self.reconstructor[i]@error[i])
 
             if self.controllerType == 'leaky':
-                modal_cmd.append(self.gain*modal_error[i] + self.decay * self.command_previous[i])
+                modal_cmd.append(self.gain[i]*modal_error[i] + self.decay[i] * self.command_previous[i])
             # For the PI (forward and backward), the sampling time is removed from multiplying ki, so that ki is in a closer range to 1, 
             # instead of having large ki values and small proportional gains
             elif self.controllerType == 'forwardPI':
-                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*self.error_previous[i])
+                modal_cmd.append(self.command_previous[i] + self.gain[i] * (modal_error[i]-self.error_previous[i]) + self.ki[i]*self.error_previous[i])
             elif self.controllerType == 'backwardPI':
-                modal_cmd.append(self.command_previous[i] + self.gain * (modal_error[i]-self.error_previous[i]) + self.ki*modal_error[i])            
+                modal_cmd.append(self.command_previous[i] + self.gain[i] * (modal_error[i]-self.error_previous[i]) + self.ki[i]*modal_error[i])            
 
         # Compute the DM command
         dm_cmd = []
