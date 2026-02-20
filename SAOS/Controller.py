@@ -82,6 +82,16 @@ class Controller:
         self.decay = kwargs.get('decay', [0.0 for _ in range(len(self.reconstructor))])
         self.ki = kwargs.get('ki', [0.0 for _ in range(len(self.reconstructor))])
 
+        if not isinstance(self.gain, list):
+            temp_gain = self.gain
+            self.gain = [temp_gain for _ in range(len(self.reconstructor))]
+        if not isinstance(self.decay, list):
+            temp_decay = self.decay
+            self.decay = [temp_decay for _ in range(len(self.reconstructor))]
+        if not isinstance(self.ki, list):
+            temp_ki = self.ki
+            self.ki = [temp_ki for _ in range(len(self.reconstructor))]                        
+
         if len(self.gain) != len(self.reconstructor):
             raise ValueError('The gain should be a float or a a list of size nDMs.')
         if len(self.decay) != len(self.reconstructor):
