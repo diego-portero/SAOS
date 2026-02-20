@@ -462,8 +462,6 @@ class InteractionMatrixHandler:
 
                                     # Break to continue with the next IM                                    
                                     break                        
-
-                        print('next iteration')
         
         self.logger.info(f'Max. displacement info: DM x LP: {self.max_displacement}')    
         self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
