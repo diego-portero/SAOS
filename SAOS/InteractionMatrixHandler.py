@@ -210,16 +210,16 @@ class InteractionMatrixHandler:
                 raise TypeError('InteractionMatrixHandler::measure - String or list were expected.')
 
         # Check stroke parameter
-        stroke_per_DM = []
+        self.stroke_per_DM = []
         if isinstance(stroke, list):
             if len(stroke) == self.im_boolean_matrix.shape[1]:
-                stroke_per_DM = stroke
+                self.stroke_per_DM = stroke
             else:
                 raise ValueError('InteractionMatrixHandler::measure - If the stroke is specify per DM, the length shall be equal to the number of DMs. \
                                  Use a scalar otherwise.')
         else:
             if isinstance(stroke, float):
-                stroke_per_DM = [stroke for _ in range(self.im_boolean_matrix.shape[1])]
+                self.stroke_per_DM = [stroke for _ in range(self.im_boolean_matrix.shape[1])]
             else:
                 raise TypeError('InteractionMatrixHandler::measure - Float or list were expected.')
 
@@ -278,19 +278,29 @@ class InteractionMatrixHandler:
                 if (j % 50) == 0:
                     self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[1]}')
                 # Apply the modal command to the DM
-                cmd = stroke_per_DM[i] * modes[:,j]
+                cmd = self.stroke_per_DM[i] * modes[:,j]
                 self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)
                 # Propagate
                 Parallel(n_jobs=2, prefer="threads")(tasks)
                 # Measure the WFS slopes at the Light Path affected
                 for k in range(len(self.light_path_list)):
                     if self.im_boolean_matrix[k, i]:
-                        tmp_IM_list[k]['IM'][:, j] = self.light_path_list[k].slopes_1D / stroke_per_DM[i]
+                        tmp_IM_list[k]['IM'][:, j] = self.light_path_list[k].slopes_1D / self.stroke_per_DM[i]
 
             self.interaction_matrix_warehouse[i] = tmp_IM_list.copy()
             # Make sure that the DM is set to zero before commanding the next one
             cmd = 0 * modes[:,0]
-            self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)            
+            self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)      
+
+        # Save the maximum displacements into a variable to provide feedback to the user
+        self.max_displacement = np.zeros((len(self.dm_scanned_list), len(self.light_path_list))) # nDms x nLPs
+
+        for i in range(self.max_displacement.shape[0]):
+            for j in range(self.max_displacement.shape[1]):
+                if self.interaction_matrix_warehouse[i][j]['IM'] is not None:
+                    self.max_displacement[i, j] = np.max(np.abs(self.interaction_matrix_warehouse[i][j]['IM'])) * self.stroke_per_DM[i]
+
+        self.logger.info(f'Max. displacement info: DM x LP: {self.max_displacement}')
         return True
     
     def save_IM(self, filename=None):
@@ -338,11 +348,12 @@ class InteractionMatrixHandler:
                         if self.im_boolean_matrix[i,j]: # There is an interaction with DM j
                             im_subgroup = lp_group.create_group('IM' + str(j))
                             # Append DMs attributes
-                            im_subgroup.attrs['nValidAct']    = self.dm_scanned_list[j].nValidAct
-                            im_subgroup.attrs['nAct']         = self.dm_scanned_list[j].nActs
-                            im_subgroup.attrs['altitude']     = self.dm_scanned_list[j].altitude
-                            im_subgroup.attrs['mechCoupling'] = self.dm_scanned_list[j].mechCoupling
-                            im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[j][i]['modalBasis']
+                            im_subgroup.attrs['nValidAct']         = self.dm_scanned_list[j].nValidAct
+                            im_subgroup.attrs['nAct']              = self.dm_scanned_list[j].nActs
+                            im_subgroup.attrs['altitude']          = self.dm_scanned_list[j].altitude
+                            im_subgroup.attrs['mechCoupling']      = self.dm_scanned_list[j].mechCoupling
+                            im_subgroup.attrs['modalBasis']        = self.interaction_matrix_warehouse[j][i]['modalBasis']
+                            im_subgroup.attrs['maxDisplacement']   = self.max_displacement[j, i]
                             # Append IM
                             im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[j][i]['IM'])
                         
@@ -414,6 +425,7 @@ class InteractionMatrixHandler:
         # Initialize the warehouse
         im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
         self.interaction_matrix_warehouse = [[im_dict.copy() for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
+        self.max_displacement = np.zeros_like(self.im_boolean_matrix, dtype=np.float32).T # nDms x nLPs
 
         with h5py.File(filename, 'r') as f:
             # Loop over the light paths
@@ -445,11 +457,15 @@ class InteractionMatrixHandler:
                                     # Store the IM
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
+
+                                    self.max_displacement[i, j] = f[lp_match_key]['IM' + str(j)].attrs['maxDisplacement']
+
                                     # Break to continue with the next IM                                    
                                     break                        
 
                         print('next iteration')
-            
+        
+        self.logger.info(f'Max. displacement info: DM x LP: {self.max_displacement}')    
         self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
 
         return True
