@@ -21,7 +21,7 @@ This module contains the `Savepoint` class, used for to save the data of adaptiv
 """
 
 class Savepoint:
-    def __init__(self, file_path=None, atm=0, atm_per_dir=0, dm=0, dm_per_dir=0, slopes=0, wfs=0, wfs_frame=0, sci=0, sci_frame=0, logger=None):
+    def __init__(self, file_path=None, atm=0, atm_per_dir=0, dm=0, dm_per_dir=0, slopes=0, error= 0, wfs=0, wfs_frame=0, sci=0, sci_frame=0, only_metrics=False, logger=None):
         """
         Initialize the Savepoint object for saving simulation data.
 
@@ -44,6 +44,9 @@ class Savepoint:
         slopes : int
             Flag to save slopes data. If 0, the slopes data will not be saved. 
             Larger than 0, it will be saved with the specified decimation factor.
+        error : int
+            Flag to save the wavefront error buffer. If 0, the error data will not be saved.
+            Larger than 0, it will be saved with the specified decimation factor.
         wfs : int
             Flag to save wavefront sensor phase. If 0, the WFS data will not be saved. 
             Larger than 0, it will be saved with the specified decimation factor.
@@ -56,6 +59,9 @@ class Savepoint:
         sci_frame : int
             Flag to save science frame. If 0, the science frame will not be saved. 
             Larger than 0, it will be saved with the specified decimation factor.
+        only_metrics : bool
+            If True, only the metrics of the buffers are saved. If false, the data
+            is included as well.
         logger : logging.Logger, optional
             External logger to use. If None, initializes internal logging.        
         """
@@ -72,10 +78,12 @@ class Savepoint:
         self.dm = dm
         self.dm_per_dir = dm_per_dir
         self.slopes = slopes
+        self.error = error
         self.wfs = wfs
         self.wfs_frame = wfs_frame
         self.sci = sci
         self.sci_frame = sci_frame
+        self.only_metrics = only_metrics
 
         # Create the file path if not provided
         if not self.file_path:
@@ -139,6 +147,11 @@ class Savepoint:
             self.custom_create_dataset('slopes_1D', slopes1d_grp, iteration, data_group.slopes_1D, mask=None)
             slopes2d_grp = group.create_group('slopes_2D')
             self.custom_create_dataset('slopes_2D', slopes2d_grp, iteration, data_group.slopes_2D, mask=None)
+
+        if self.error and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
+            # Create group and add the datasets with the statistics ( mask is not needed)
+            error_grp = group.create_group('error')
+            self.custom_create_dataset('error', error_grp, iteration, data_group.get_wavefront_error(), mask=None)            
 
         if self.wfs and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
             # Pupil mask to compute statistics
@@ -316,7 +329,7 @@ class Savepoint:
         Parameters
         ----------
         data_type : str
-            Type of data ('phase', 'opd', 'slopes_1D', 'slopes_2D', 'sci_frame').
+            Type of data ('phase', 'opd', 'slopes_1D', 'slopes_2D', 'error', 'sci_frame').
         group : h5py.Group
             The group in which to append the dataset.
         iteration : int
@@ -339,8 +352,9 @@ class Savepoint:
             mask = data_object.tel.pupil[None, ...]
         
         new_data = self.compute_stats(data, mask, data_type, lp=data_object)
-        # Add the keys for the data and the iteration, aprt from the stadistics
-        new_data['data'] = data
+        # Add the keys for the data and the iteration, apart from the stadistics
+        if not self.only_metrics:
+            new_data['data'] = data
         new_data['iteration'] = np.array([iteration])
 
         for stat_name, value in new_data.items():
@@ -420,6 +434,11 @@ class Savepoint:
                             self.append_to_dataset('slopes_1D', grp, iteration, lp.slopes_1D, lp)
                             grp = group['slopes_2D']
                             self.append_to_dataset('slopes_2D', grp, iteration, lp.slopes_2D, lp)
+
+                        # Error
+                        if self.error and ((iteration+1)%self.error) == 0 and (lp.wfs is not None):
+                            grp = group['error']
+                            self.append_to_dataset('slopes_1D', grp, iteration, lp.get_wavefront_error(), lp)
 
                         # WFS
                         if self.wfs and ((iteration+1)%self.wfs) == 0 and (lp.wfs is not None):
