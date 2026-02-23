@@ -135,14 +135,14 @@ class Sharepoint:
         for i in range(nNameSpaces):
             topic_name = 'lightPath' + str(i) + '/'
 
-            if self.atm_per_dir > 0:
+            if self.atm_per_dir > 0 and (light_path[i].atm is not None):
                 topics.append(topic_name + 'atmosphere_opd')
                 topics.append(topic_name + 'atmosphere_phase')
                 if ((iteration+1) % self.atm_per_dir) == 0:
                     self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].atmosphere_opd)])
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].atmosphere_phase)])
 
-            if self.dm_per_dir > 0:
+            if (self.dm_per_dir > 0) and (light_path[i].dm is not None):
                 # Check number of dirs
                 if np.ndim(light_path[i].dm_opd) > 2:
                     ndirs = len(light_path[i].dm_opd)
@@ -158,33 +158,33 @@ class Sharepoint:
                     topics.append(topic_name + 'dm_phase')
                     self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].dm_opd)])
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].dm_opd)])
-            if self.slopes > 0:
+            if (self.slopes > 0) and (light_path[i].wfs is not None):
                 topics.append(topic_name + 'slopes_1D')
                 topics.append(topic_name + 'slopes_2D')
                 if ((iteration+1) % self.slopes) == 0:
                     self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].slopes_1D)])
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].slopes_2D)])
             
-            if self.wfs > 0:
+            if (self.wfs > 0) and (light_path[i].wfs is not None):
                 topics.append(topic_name + 'wfs_opd')
                 topics.append(topic_name + 'wfs_phase')
                 if ((iteration+1) % self.wfs) == 0:
                     self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].wfs_opd)])
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].wfs_phase)])
 
-            if self.sci > 0:
+            if (self.sci > 0) and (light_path[i].sci is not None):
                 topics.append(topic_name + 'sci_opd')
                 topics.append(topic_name + 'sci_phase')
                 if ((iteration+1) % self.sci) == 0:
                     self.socket.send_multipart([topics[-2].encode(), pickle.dumps(light_path[i].sci_opd)])
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].sci_phase)])
             
-            if self.sci_frame > 0:
+            if (self.sci_frame > 0) and (light_path[i].sci is not None):
                 topics.append(topic_name + 'sci_frame')
                 if ((iteration+1) % self.sci_frame) == 0:
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].sci_frame)])
 
-            if self.wfs_frame > 0:    
+            if (self.wfs_frame > 0) and (light_path[i].wfs is not None): 
                 topics.append(topic_name + 'wfs_frame')
                 if ((iteration+1) % self.wfs_frame) == 0:
                     self.socket.send_multipart([topics[-1].encode(), pickle.dumps(light_path[i].wfs_frame)])
