@@ -68,7 +68,7 @@ class Controller:
         self.beta = kwargs.get('beta', 1e-4) # adim, adjusted through trial-error
 
         # Run the initialization of the reconstructor
-        self.reconstructor, self.modal_basis, self.mask = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)                
+        self.reconstructor, self.modal_basis, self.mask, self.altitude = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)                
 
         # Setup the controller
 
@@ -154,6 +154,11 @@ class Controller:
                     modal_basis_type = interactionMatrix.interaction_matrix_warehouse[i][j]['modalBasis']
                     modal_basis.append(torch.as_tensor(interactionMatrix.modal_basis[i][modal_basis_type], dtype=torch.float64, device=self.device))
                     break
+        # Get altitudes:
+        altitude = []
+        for i in range(len(interactionMatrix.dm_scanned_list)):
+            altitude.append(interactionMatrix.dm_scanned_list[i].altitude)
+
         # Now, define the reconstruction matrices for each DM
 
         reconstructor = []
@@ -182,7 +187,7 @@ class Controller:
 
         self.logger.info(f'Controller::initializeReconstructor - Reconstruction took {time.time()-t0}[s]')
 
-        return reconstructor, modal_basis, mask
+        return reconstructor, modal_basis, mask, altitude
     
     def initializeController(self, controllerType, reconstructor):
 
@@ -230,7 +235,10 @@ class Controller:
         dm_cmd = []
 
         for i in range(len(self.reconstructor)):
-            dm_cmd.append(self.modal_basis[i][:,:self.reconstructor[i].shape[0]] @ modal_cmd[i])
+            if self.altitude[i] > 0: # TT is discarded automatically in the IM measurement
+                dm_cmd.append(self.modal_basis[i][:,2:2+self.reconstructor[i].shape[0]] @ modal_cmd[i])
+            else:
+                dm_cmd.append(self.modal_basis[i][:,:self.reconstructor[i].shape[0]] @ modal_cmd[i])
 
         # Update history buffers for the next iteration
 
