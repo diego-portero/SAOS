@@ -151,7 +151,7 @@ class Savepoint:
         if self.error and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
             # Create group and add the datasets with the statistics ( mask is not needed)
             error_grp = group.create_group('error')
-            self.custom_create_dataset('error', error_grp, iteration, data_group.get_wavefront_error(), mask=None)            
+            self.custom_create_dataset('slopes_1D', error_grp, iteration, data_group.get_wavefront_error(), mask=None)            
 
         if self.wfs and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
             # Pupil mask to compute statistics
