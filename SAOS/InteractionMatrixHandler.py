@@ -458,7 +458,7 @@ class InteractionMatrixHandler:
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
 
-                                    self.max_displacement[i, j] = f[lp_match_key]['IM' + str(j)].attrs['maxDisplacement']
+                                    self.max_displacement[j, i] = f[lp_match_key]['IM' + str(j)].attrs['maxDisplacement']
 
                                     # Break to continue with the next IM                                    
                                     break                        
