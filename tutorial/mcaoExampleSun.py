@@ -45,9 +45,9 @@ nModes = None # [nModesASM, nModesM7]
 im_stroke = [1e-6, 1.5e-6, 1.5e-6] # in meters
 
 # Loading files:
-load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/20260223_1834.h5')
-load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/mcaoExampleExtendedSource.h5')
-load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/mcaoExampleExtendedSource.h5')
+load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/mcaoExample.h5')
+load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/mcaoExample.h5')
+load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/mcaoExample.h5')
 
 # Saving files
 date = datetime.datetime.now().strftime("%Y%m%d_%H%M")
@@ -231,8 +231,8 @@ test_logger.logger.info(f'The IM creation took {time.time()-t0} [s]')
 # Controller class
 controller_kwargs = {'rcond':0.025, 
                     'beta':1e-4,
-                    'gain':[-0.2, 0.0, 0.0],
-                    'decay':[0.99, 0.0, 0.0],
+                    'gain':[0.4, 0.15, 0.15],
+                    'decay':[0.9999, 0.99, 0.99],
                     'ki':[0.0,0.0, 0.0]}
 
 controller = Controller(telescope=est_tel,
