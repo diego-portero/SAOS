@@ -76,6 +76,8 @@ class LightPath:
 
         # WFS variables
         if self.wfs:
+            if self.src.tag == 'sun': # We need to generate the pseudo refence
+                self.pseudo_ref, self.reference_slopes = self.wfs.initialize_wfs(self.tel, self.src)
             self.slopes_1D = np.zeros(self.wfs.nSignal) # [px] or [rad] depending on the WFS configuration
             self.slopes_2D = np.zeros((2*self.wfs.nSubap, self.wfs.nSubap)) # [px] or [rad] depending on the WFS configuration
             self.wfs_frame = None
@@ -248,7 +250,10 @@ class LightPath:
 
         # Then, measure the slopes at the WFS - if defined
         if self.wfs is not None:
-            self.slopes_1D, self.slopes_2D, self.wfs_frame = self.wfs.wfs_measure(self.wfs_phase, self.src)
+            if self.src.tag == 'sun':
+                self.slopes_1D, self.slopes_2D, self.wfs_frame, _ = self.wfs.wfs_measure(self.wfs_phase, self.src, self.pseudo_ref, self.reference_slopes)
+            else:
+                self.slopes_1D, self.slopes_2D, self.wfs_frame = self.wfs.wfs_measure(self.wfs_phase, self.src)
 
             self.error_measurement[:, (self.iteration+1)%self.error_measurement.shape[1]] = self.slopes_1D.copy()
 

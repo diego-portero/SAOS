@@ -257,8 +257,55 @@ class CorrelatingShackHartmann:
         
         self.nSignal = 2*self.nValidSubaperture     
 
-        # WFS initialization
-        self.initialize_wfs(telescope, src)       
+        self.geometric_references  = np.zeros([self.nSubap*2,self.nSubap])
+
+        # Compute conversion from px to rad
+        self.calib_unit(telescope, src)
+
+    def calib_unit(self, telescope, src):
+        """
+        Calib the unit of the sensor if the user specifies radians instead of pixels.
+
+        Parameters
+        ----------
+        telescope : Telescope
+            The telescope object providing phase and pupil info.
+        src : Source
+            Source object for flux and wavelength reference.
+
+        Returns
+        -------
+        None
+        """  
+        
+        # First, we generate a phase
+        self.slopes_units           = 1
+
+        if self.unit_in_rad:
+            self.logger.info('CorrelatingShackHartmann::calib_unit - Setting slopes units..') 
+            [Tip, Tilt] = np.meshgrid(np.linspace(-np.pi,np.pi,telescope.resolution,endpoint=False),np.linspace(-np.pi,np.pi,telescope.resolution,endpoint=False))
+
+            mode_amp = np.std(Tip)
+            amp_list = [i for i in range(-2,3)]
+
+            mean_slope = np.zeros(5)
+            input_std = np.zeros(5)
+
+            for i in range(len(amp_list)):
+                calibration_phase_tip = amp_list[i]*Tip*telescope.pupil
+                calibration_phase_tip = np.repeat(calibration_phase_tip[np.newaxis,:,:], src.nSubDirs**2, axis=0)
+                signalTip,_,_ = self.wfs_measure(calibration_phase_tip, src, None, None)
+
+                calibration_phase_tilt = amp_list[i]*Tilt*telescope.pupil
+                calibration_phase_tilt = np.repeat(calibration_phase_tilt[np.newaxis,:,:], src.nSubDirs**2, axis=0)
+                signalTilt,_,_ = self.wfs_measure(calibration_phase_tilt, src, None, None)
+
+                mean_slope[i] = np.mean(signalTip[:self.nValidSubaperture] + signalTilt[:self.nValidSubaperture])
+                input_std[i] = np.std(calibration_phase_tip[telescope.pupil])
+                
+            p = np.polyfit(amp_list*np.asarray(mode_amp), mean_slope, deg = 1)
+            self.slopes_units = np.abs(p[0]) # [px/rad]
+        
         
     def initialize_wfs(self, telescope, src):
         """
@@ -276,49 +323,13 @@ class CorrelatingShackHartmann:
         -------
         None
         """
-        self.isInitialized = False
-        
-        # flux per subaperture
-        self.reference_slopes_maps  = np.zeros([self.nSubap*2,self.nSubap])
-        self.slopes_units           = 1
-
         self.logger.info('CorrelatingShackHartmann::initialize_wfs - Acquiring reference slopes..')
         null_phase = np.zeros((src.nSubDirs**2, telescope.resolution, telescope.resolution))       
-        self.pseudoref = None 
-        _, self.reference_slopes_maps,_ = self.wfs_measure(null_phase, src)        
-        self.isInitialized = True
-        
-        self.logger.info('CorrelatingShackHartmann::initialize_wfs - Setting slopes units..')  
-        # Compute conversion from px to rad
-
-        # First, we generate a phase
-        if self.unit_in_rad:
-            [Tip, Tilt] = np.meshgrid(np.linspace(-np.pi,np.pi,telescope.resolution,endpoint=False),np.linspace(-np.pi,np.pi,telescope.resolution,endpoint=False))
-
-            mode_amp = np.std(Tip)
-            amp_list = [i for i in range(-2,3)]
-
-            mean_slope = np.zeros(5)
-            input_std = np.zeros(5)
-
-            for i in range(len(amp_list)):
-                calibration_phase_tip = amp_list[i]*Tip*telescope.pupil
-                calibration_phase_tip = np.repeat(calibration_phase_tip[np.newaxis,:,:], src.nSubDirs**2, axis=0)
-                signalTip,_,_ = self.wfs_measure(calibration_phase_tip, src)
-
-                calibration_phase_tilt = amp_list[i]*Tilt*telescope.pupil
-                calibration_phase_tilt = np.repeat(calibration_phase_tilt[np.newaxis,:,:], src.nSubDirs**2, axis=0)
-                signalTilt,_,_ = self.wfs_measure(calibration_phase_tilt, src)
-
-                mean_slope[i] = np.mean(signalTip[:self.nValidSubaperture] + signalTilt[:self.nValidSubaperture])
-                input_std[i] = np.std(calibration_phase_tip[telescope.pupil])
+        _, reference_slopes_maps,_, pseudoref = self.wfs_measure(null_phase, src)        
                 
-            p = np.polyfit(amp_list*np.asarray(mode_amp), mean_slope, deg = 1)
-            self.slopes_units = np.abs(p[0]) # [px/rad]
-        
         self.logger.info('CorrelatingShackHartmann::initialize_wfs - Done!') 
         
-        self.print_properties()
+        return pseudoref, reference_slopes_maps
     
     def cross_correlate(self, subaps, pseudoref):
         """
@@ -759,7 +770,7 @@ class CorrelatingShackHartmann:
             
     
 #%% SH Measurement
-    def wfs_integrate(self, ideal_frame, subaps, nPhoton):
+    def wfs_integrate(self, ideal_frame, subaps, nPhoton, pseudoref=None, reference_slopes=None):
         """
         Integrate the full detector image and compute valid slopes.
 
@@ -771,6 +782,8 @@ class CorrelatingShackHartmann:
             Spot images per subaperture.
         nPhoton : int
             Number of incident photons
+        pseudoref : torch.Tensor
+            Subaperture used as pseudo-reference for the correlations, if None one subaperture is picked
         Returns
         -------
         tuple
@@ -781,11 +794,11 @@ class CorrelatingShackHartmann:
         subaps = self.get_subaps(noisy_frame)
 
         # Check if we have a pseudo reference 
-        if self.pseudoref is None:
-            self.pseudoref = torch.clone(subaps[0,:,:]).contiguous().to(self.device)
+        if pseudoref is None:
+            pseudoref = torch.clone(subaps[0,:,:]).contiguous().to(self.device)
 
         # Compute correlation images
-        correlation_images = self.cross_correlate(subaps, self.pseudoref)
+        correlation_images = self.cross_correlate(subaps, pseudoref)
         # compute the centroid on valid subaperture
         centroid_lenslets = self.centroid(correlation_images, self.use_brightest)
         
@@ -807,17 +820,21 @@ class CorrelatingShackHartmann:
         sx[self.validLenslets_x, self.validLenslets_y] = centroid_lenslets[:,0]
         sy[self.validLenslets_x, self.validLenslets_y] = centroid_lenslets[:,1]
 
-        signal_2D                           = np.concatenate((sx, sy)) - self.reference_slopes_maps
+        if reference_slopes is None:
+            signal_2D                           = np.concatenate((sx, sy)) - self.geometric_references
+        else:
+            signal_2D                           = np.concatenate((sx, sy)) - reference_slopes
+
         signal_2D[~self.valid_slopes_maps]  = 0
         
         signal_2D                      = signal_2D/self.slopes_units
         signal                         = signal_2D[self.valid_slopes_maps]
         
-        return signal, signal_2D, noisy_frame
+        return signal, signal_2D, noisy_frame, pseudoref
     
     # Receives the phase [rad]] and return the slopes measured by the SH in [px]
     # Expects the ideal frame WITHOUT pupil applied.
-    def wfs_measure(self,phase_in, src):
+    def wfs_measure(self,phase_in, src, pseudoref=None, reference_slopes=None):
         """
         Measure slopes from a wavefront phase using the SH-WFS.
 
@@ -829,7 +846,10 @@ class CorrelatingShackHartmann:
             Source object.
         integrate : bool, optional
             Whether to include camera integration effects.
-
+        pseudoref : torch.Tensor
+            Pseudo-reference image used for the correlations, if None the method picks one.
+        reference_slopes : np.ndarray
+            Reference for the WF sensor, if None, geometric references are used.
         Returns
         -------
         tuple
@@ -869,24 +889,11 @@ class CorrelatingShackHartmann:
 
         ideal_frame = self.create_full_frame(I)
         t4 = time.time()
-        signal, signal_2D, noisy_frame = self.wfs_integrate(ideal_frame, I, src.nPhoton*self.lightRatio)                
+        signal, signal_2D, noisy_frame, pseudoref = self.wfs_integrate(ideal_frame, I, src.nPhoton*self.lightRatio, pseudoref, reference_slopes)                
         t5 = time.time()
         self.logger.debug(f'PSF: {t1-t0}, Compute images: {t2-t1}, Merge images: {t3-t2}, Create full frame: {t4-t3}, Integrate:{t5-t4}')
-        return signal, signal_2D, noisy_frame
-
-    def print_properties(self):
-        """
-        Print Shack-Hartmann configuration and diagnostic values.
-
-        Returns
-        -------
-        None
-        """
-        self.logger.info('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% SHACK HARTMANN WFS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
-        self.logger.info('{: ^20s}'.format('Subapertures')         + '{: ^18s}'.format(str(self.nSubap))                                   )
-        self.logger.info('{: ^20s}'.format('Subaperture Size')     + '{: ^18s}'.format(str(np.round(self.subaperture_size, 2)))         +'{: ^18s}'.format('[m]'     ))
-        self.logger.info('{: ^20s}'.format('Subapertue FoV')       + '{: ^18s}'.format(str(np.round(self.fieldOfView,2)))        +'{: ^18s}'.format('[arcsec]'))
-        self.logger.info('{: ^20s}'.format('Valid Subaperture')    + '{: ^18s}'.format(str(str(self.nValidSubaperture))))                           
+        return signal, signal_2D, noisy_frame, pseudoref
+              
       
     def setup_logging(self, logging_level=logging.WARNING):
         #  Setup of logging at the main process using QueueHandler

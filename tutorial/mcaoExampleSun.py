@@ -109,19 +109,25 @@ else:
 # 6 NGS cicurlarly distributed at a radious of 15" and rotated 45º
 coord_list = [[0, 0]] + [[15, i * 360 / 6 + 45] for i in range(6)]
 
-ngs_list = []
+sun_list = []
 
 for i in range(len(coord_list)):
-    ngs_list.append(Source(magnitude = 5,
-                           optBand = 'R4',
-                           coordinates=coord_list[i],
-                           logger=test_logger.logger))
+    sun_list.append(ExtendedSource(optBand = 'R',
+                     coordinates=coord_list[i],
+                     nSubDirs=3,
+                     fov=9.269,
+                     subDir_margin=4.0,
+                     patch_padding=5.0,
+                     logger=test_logger.logger))
     
 
-ext_sci_ngs = Source(magnitude = 5,
-                    optBand = 'R4',
-                    coordinates=[25,30],
-                    logger=test_logger.logger)
+ext_sci_ngs = ExtendedSource(optBand = 'R',
+                     coordinates=[20, 30],
+                     nSubDirs=3,
+                     fov=9.269,
+                     subDir_margin=4.0,
+                     patch_padding=5.0,
+                     logger=test_logger.logger)
 
 ## Deformable mirrors:
 
@@ -159,17 +165,17 @@ vis_vibrations = None #Vibration(est_tel, vis_vibration_file, test_logger.logger
 
 ## Wavefront Sensor
 
-red_wfs = ShackHartmann(telescope=est_tel,
-                      src=ngs_list[0],
-                      lightRatio=0.9,
-                      nSubap=n_subaperture_red,
-                      plate_scale=0.403,
-                      fieldOfView=9.269,
-                      guardPx=2,
-                      fft_fieldOfView_oversampling=0.5,
-                      use_brightest=50,
-                      unit_in_rad=False,
-                      logger=test_logger.logger)
+red_wfs = CorrelatingShackHartmann(telescope=est_tel,
+                                    src=sun_list[0],
+                                    lightRatio=0.9,
+                                    nSubap=n_subaperture_red,
+                                    plate_scale=0.403,
+                                    fieldOfView=9.269,
+                                    guardPx=2,
+                                    fft_fieldOfView_oversampling=0.5,
+                                    use_brightest=9,
+                                    unit_in_rad=False,
+                                    logger=test_logger.logger)
 
 ## Science camera
 
@@ -186,13 +192,13 @@ red_scicam = ScienceCam(fieldOfView=9.269,
 scao_light_path_list = []
 
 # Create red branch
-for i in range(len(ngs_list)):
+for i in range(len(sun_list)):
     if (i == 0) or (i == 2) or (i == 6): # Add science camera
         scao_light_path_list.append(LightPath(test_logger.logger))
-        scao_light_path_list[-1].initialize_path(src=ngs_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=red_vibrations, sci=red_scicam, delay=0)
+        scao_light_path_list[-1].initialize_path(src=sun_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=red_vibrations, sci=red_scicam, delay=0)
     else:
         scao_light_path_list.append(LightPath(test_logger.logger))
-        scao_light_path_list[-1].initialize_path(src=ngs_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=red_vibrations, sci=None, delay=0)
+        scao_light_path_list[-1].initialize_path(src=sun_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=red_vibrations, sci=None, delay=0)
 
 scao_light_path_list.append(LightPath(test_logger.logger))
 scao_light_path_list[-1].initialize_path(src=ext_sci_ngs, atm=atm, tel=est_tel, dm=dms, wfs=None, vibration=red_vibrations, sci=red_scicam, delay=0)
