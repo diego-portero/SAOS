@@ -116,6 +116,12 @@ for i in range(len(coord_list)):
                            optBand = 'R4',
                            coordinates=coord_list[i],
                            logger=test_logger.logger))
+    
+
+ext_sci_ngs = Source(magnitude = 5,
+                    optBand = 'R4',
+                    coordinates=[25,30],
+                    logger=test_logger.logger)
 
 ## Deformable mirrors:
 
@@ -188,6 +194,8 @@ for i in range(len(ngs_list)):
         scao_light_path_list.append(LightPath(test_logger.logger))
         scao_light_path_list[-1].initialize_path(src=ngs_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=red_vibrations, sci=None, delay=0)
 
+scao_light_path_list.append(LightPath(test_logger.logger))
+scao_light_path_list[-1].initialize_path(src=ext_sci_ngs, atm=atm, tel=est_tel, dm=dms, wfs=None, vibration=red_vibrations, sci=red_scicam, delay=0)
 
 lightPathTasks = []
 for i in range(len(scao_light_path_list)):
