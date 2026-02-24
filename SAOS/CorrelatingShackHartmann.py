@@ -590,7 +590,7 @@ class CorrelatingShackHartmann:
         sun_patches = torch.sqrt(sun_patches_complex.real**2 + sun_patches_complex.imag**2)
 
         # Normalize energy
-        sun_energy = subDirs_sun.sum(axis=(0,1))
+        sun_energy = torch.from_numpy(subDirs_sun).to(self.device).sum(axis=(0,1))
         sun_energy = sun_energy.reshape(1,sun_patches.shape[1],1,1)
 
         curr_energy = torch.sum(sun_patches, dim=(-2, -1), keepdim=True)
