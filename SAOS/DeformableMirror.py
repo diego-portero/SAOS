@@ -594,7 +594,7 @@ class DeformableMirror:
             val = val.unsqueeze(1)
         # Fill the layer 1D command
         temp = np.zeros_like(self.validAct, dtype=np.float32)
-        temp[self.validAct] = val.numpy().squeeze()
+        temp[self.validAct] = val.cpu().numpy().squeeze()
         
         self.dm_layer.cmd_1D = temp.copy()
 
