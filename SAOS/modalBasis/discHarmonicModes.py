@@ -6,43 +6,41 @@ import scipy.special as sp
 # Based on: Milton & Lloyd-Hart, Disk Harmonic functions for adaptive optics simulations, Optics Society of America, 2005.
 
 def generate_dh_modes(dm, nModes=None, useTorch=False, include_piston=False):
-    # Read the main parameters of the DM: nActs and pupil mask
-    pupil_mask = dm.validAct_2D
-    nActs = dm.nValidAct
 
     # If the modes are not specified, use the number of actuators --> maximum number of modes
     if nModes is None:
-        nModes = nActs
-
-    dh_modes = np.zeros((pupil_mask.shape[0], pupil_mask.shape[1], nActs))
-
-    # Get grid coordinates
-    coords = np.arange(pupil_mask.shape[0])
-    x, y = np.meshgrid(coords, coords)
-    
-    # Compute center and radius normalization
-    origin_x, origin_y = pupil_mask.shape[0] / 2, pupil_mask.shape[1] / 2
-    r_max = np.max(np.sqrt((x - origin_x) ** 2 + (y - origin_y) ** 2) * pupil_mask)
+        nModes = dm.nValidAct
 
     # Compute radius and theta arrays for all points
-    r = np.sqrt((y - origin_y) ** 2 + (x - origin_x) ** 2) / r_max
-    theta = np.arctan2(y - origin_y, x - origin_x)
-
-    # Mask out non-pupil regions
-    r[~pupil_mask] = 0
-    theta[~pupil_mask] = 0
+    r = np.sqrt(dm.coordinates[:,0]**2 + dm.coordinates[:,1]**2)
+    r /= np.max(r, axis=0)
+    theta = np.arctan2(dm.coordinates[:,1], dm.coordinates[:,0])
 
     # Allocate output array
-    dh_modes = np.zeros((pupil_mask.shape[0], pupil_mask.shape[1], nModes))
+    dh_modes = np.zeros((dm.coordinates.shape[0], nModes))
 
     # Compute modes in a vectorized way
     for i in range(nModes):
         n, m = get_index(i+1) if include_piston else get_index(i+2)
-        dh_modes[:, :, i] = disk_harmonic_mode(m, n, r, theta) * pupil_mask  # Apply mask
+        dh_modes[:, i] = disk_harmonic_mode(m, n, r, theta)  # Apply mask
+
+        # Remove piston
+        dh_modes[dm.validAct,i] -= np.mean(dh_modes[dm.validAct,i])
+
+        # Normalize energy to 1 --> Necessary before Gram-Schmidt
+        energy = np.sqrt(np.mean(dh_modes[dm.validAct, i]**2))
+        if energy > 0:
+            dh_modes[:,i] /= energy
+    
+    # Gram-Schmidt orthogonalization
+    dh_modes_qr, _ =  np.linalg.qr(dh_modes[dm.validAct,:])
+
+    dh_modes[dm.validAct, :]  = dh_modes_qr
+    dh_modes[~dm.validAct, :] = 0.0
 
     # Normalize the mode between -1 and 1
 
-    max_values = np.max(np.abs(dh_modes), axis=(0,1), keepdims=True)
+    max_values = np.max(np.abs(dh_modes), axis=0, keepdims=True)
     max_values[max_values == 0] = 1
     dh_modes = dh_modes / max_values
 
@@ -50,7 +48,7 @@ def generate_dh_modes(dm, nModes=None, useTorch=False, include_piston=False):
 
     if useTorch:
         return torch.tensor(dh_modes, dtype=torch.float32)
-        
+
     return dh_modes
         
 # Get the radial and azimuthal order from the Noll index (>= 1)

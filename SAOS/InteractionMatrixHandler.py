@@ -2,6 +2,7 @@ import time
 
 import numpy as np
 from joblib import Parallel, delayed
+import torch
 
 import h5py
 import os
@@ -41,7 +42,8 @@ class InteractionMatrixHandler:
             self.external_logger_flag = True
             self.logger = logger
 
-        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         # Class attributes that will be fill during execution        
         self.dm_scanned_list = None
         self.light_path_list = None
@@ -95,9 +97,10 @@ class InteractionMatrixHandler:
                     dm_already_listed = False
 
                     for j in range(len(light_path_list[i].dm)):
+                        # Check if the DM is in the list
                         for k in range(len(self.dm_scanned_list)):
                             # Compare the properties of this DM with the ones already listed
-                            if ((self.dm_scanned_list[k].nAct         == light_path_list[i].dm[j].nAct)      and
+                            if ((self.dm_scanned_list[k].nActs        == light_path_list[i].dm[j].nActs)     and
                                 (self.dm_scanned_list[k].altitude     == light_path_list[i].dm[j].altitude)  and
                                 (self.dm_scanned_list[k].nValidAct    == light_path_list[i].dm[j].nValidAct) and
                                 (self.dm_scanned_list[k].mechCoupling == light_path_list[i].dm[j].mechCoupling)):
@@ -106,11 +109,14 @@ class InteractionMatrixHandler:
                                 # The DM is listed, so we will simply register the relation of this DM to the Light Path analysed.
                                 tmp_dm_light_path_relation.append(k)
                                 break
+                        # If it is not, append it
                         if dm_already_listed is False:
                             # Entering here implies that the DM was not listed, so we will have to add it
                             self.dm_scanned_list.append(light_path_list[i].dm[j])
                             # Register the relation of the DM to the light path 
                             tmp_dm_light_path_relation.append(len(self.dm_scanned_list)-1)
+                        # Reset for next DM
+                        dm_already_listed = False
             # Save the DMs affecting the light path into the main matrix
             im_scan_plan.append(tmp_dm_light_path_relation)
 
@@ -204,16 +210,16 @@ class InteractionMatrixHandler:
                 raise TypeError('InteractionMatrixHandler::measure - String or list were expected.')
 
         # Check stroke parameter
-        stroke_per_DM = []
+        self.stroke_per_DM = []
         if isinstance(stroke, list):
             if len(stroke) == self.im_boolean_matrix.shape[1]:
-                stroke_per_DM = stroke
+                self.stroke_per_DM = stroke
             else:
                 raise ValueError('InteractionMatrixHandler::measure - If the stroke is specify per DM, the length shall be equal to the number of DMs. \
                                  Use a scalar otherwise.')
         else:
             if isinstance(stroke, float):
-                stroke_per_DM = [stroke for _ in range(self.im_boolean_matrix.shape[1])]
+                self.stroke_per_DM = [stroke for _ in range(self.im_boolean_matrix.shape[1])]
             else:
                 raise TypeError('InteractionMatrixHandler::measure - Float or list were expected.')
 
@@ -239,21 +245,22 @@ class InteractionMatrixHandler:
         # Once the input parameters are defined, we proceed to measure the IM
         # Prepare the variable to store the different IMs
         im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
-        self.interaction_matrix_warehouse = [[im_dict for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
+        # nLps x mDms
+        self.interaction_matrix_warehouse = [[im_dict.copy() for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
         # Prepare the LightPaths to be parallelized
         tasks = []
 
         for i in range(len(self.light_path_list)):
-            tasks.append(delayed(self.light_path_list[i].propagate)(True, False, True, False))
+            tasks.append(delayed(self.light_path_list[i].propagate)(temporal_tick=False, interaction_matrix=True))
 
         for i in range(len(self.dm_scanned_list)):
             self.logger.info(f'InteractionMatrixHandler::measure - DM {i}')
             # Get the modal basis
-            modes = self.modal_basis[i][modal_basis_per_DM[i]][:, :, :nModes_per_DM[i]]
+            modes = self.modal_basis[i][modal_basis_per_DM[i]][:, :nModes_per_DM[i]]
             # Check if the DM is at ground layer or altitude to discard TT
             if self.dm_scanned_list[i].altitude > 0:
                 self.logger.warning('InteractionMatrixHandler::measure - Be advised that TT is discarded in altitude DMs, the number of modes specified is reduced by 2.')
-                modes = modes[:,:,2:]
+                modes = modes[:,2:]
             # Initialize the IMs that will be measured
             tmp_IM_list = []
                 
@@ -262,28 +269,38 @@ class InteractionMatrixHandler:
                     tmp_IM_list.append(im_dict.copy())
                     # Fill the metadata of the matrix
                     tmp_IM_list[-1]['modalBasis'] = modal_basis_per_DM[i]
-                    tmp_IM_list[-1]['IM'] = np.zeros((self.light_path_list[k].wfs.nSignal, modes.shape[2]))
+                    tmp_IM_list[-1]['IM'] = np.zeros((self.light_path_list[k].wfs.nSignal, modes.shape[1]))
                     tmp_IM_list[-1]['slopes_units'] = 'rad' if self.light_path_list[k].wfs.unit_in_rad else 'px'
                 else:
-                    tmp_IM_list.append(None)
+                    tmp_IM_list.append(im_dict.copy())
             # Now, loop over each mode to measure the interaction matrix
-            for j in range(modes.shape[2]):
+            for j in range(modes.shape[1]):
                 if (j % 50) == 0:
-                    self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[2]}')
+                    self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[1]}')
                 # Apply the modal command to the DM
-                cmd = stroke_per_DM[i] * modes[:,:, j]
-                self.dm_scanned_list[i].updateDMShape(cmd)
+                cmd = self.stroke_per_DM[i] * modes[:,j]
+                self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)
                 # Propagate
                 Parallel(n_jobs=2, prefer="threads")(tasks)
                 # Measure the WFS slopes at the Light Path affected
                 for k in range(len(self.light_path_list)):
                     if self.im_boolean_matrix[k, i]:
-                        tmp_IM_list[k]['IM'][:, j] = self.light_path_list[k].slopes_1D / stroke_per_DM[i]
+                        tmp_IM_list[k]['IM'][:, j] = self.light_path_list[k].slopes_1D / self.stroke_per_DM[i]
 
             self.interaction_matrix_warehouse[i] = tmp_IM_list.copy()
             # Make sure that the DM is set to zero before commanding the next one
-            cmd = 0 * modes[:,:, 0]
-            self.dm_scanned_list[i].updateDMShape(cmd)            
+            cmd = 0 * modes[:,0]
+            self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)      
+
+        # Save the maximum displacements into a variable to provide feedback to the user
+        self.max_displacement = np.zeros((len(self.dm_scanned_list), len(self.light_path_list))) # nDms x nLPs
+
+        for i in range(self.max_displacement.shape[0]):
+            for j in range(self.max_displacement.shape[1]):
+                if self.interaction_matrix_warehouse[i][j]['IM'] is not None:
+                    self.max_displacement[i, j] = np.max(np.abs(self.interaction_matrix_warehouse[i][j]['IM'])) * self.stroke_per_DM[i]
+
+        self.logger.info(f'Max. displacement info: DM x LP: {self.max_displacement}')
         return True
     
     def save_IM(self, filename=None):
@@ -331,10 +348,12 @@ class InteractionMatrixHandler:
                         if self.im_boolean_matrix[i,j]: # There is an interaction with DM j
                             im_subgroup = lp_group.create_group('IM' + str(j))
                             # Append DMs attributes
-                            im_subgroup.attrs['nValidAct']    = self.dm_scanned_list[j].nValidAct
-                            im_subgroup.attrs['altitude']     = self.dm_scanned_list[j].altitude
-                            im_subgroup.attrs['mechCoupling'] = self.dm_scanned_list[j].mechCoupling
-                            im_subgroup.attrs['modalBasis']   = self.interaction_matrix_warehouse[j][i]['modalBasis']
+                            im_subgroup.attrs['nValidAct']         = self.dm_scanned_list[j].nValidAct
+                            im_subgroup.attrs['nAct']              = self.dm_scanned_list[j].nActs
+                            im_subgroup.attrs['altitude']          = self.dm_scanned_list[j].altitude
+                            im_subgroup.attrs['mechCoupling']      = self.dm_scanned_list[j].mechCoupling
+                            im_subgroup.attrs['modalBasis']        = self.interaction_matrix_warehouse[j][i]['modalBasis']
+                            im_subgroup.attrs['maxDisplacement']   = self.max_displacement[j, i]
                             # Append IM
                             im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[j][i]['IM'])
                         
@@ -373,10 +392,10 @@ class InteractionMatrixHandler:
                 modal_group = f.create_group(self.modal_list[i])
                 # For each modal basis, create a subgroup per DM --> The name is the number of valid acts
                 for j in range(len(self.dm_scanned_list)):
-                    dm_subgroup = modal_group.create_group('DM' + str(self.dm_scanned_list[j].nValidAct))
+                    dm_subgroup = modal_group.create_group('DM' + str(j))
                     # Then, we add the modal base and the metadata
                     dm_subgroup.create_dataset('data', data=self.modal_basis[j][self.modal_list[i]])
-                    dm_subgroup.attrs['nAct'] = self.dm_scanned_list[j].nAct
+                    dm_subgroup.attrs['nAct'] = self.dm_scanned_list[j].nActs
                     dm_subgroup.attrs['nValidAct'] = self.dm_scanned_list[j].nValidAct
        
         self.logger.info('InteractionMatrixHandler::save_IM - Saved.')        
@@ -405,7 +424,8 @@ class InteractionMatrixHandler:
 
         # Initialize the warehouse
         im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
-        self.interaction_matrix_warehouse = [[im_dict for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
+        self.interaction_matrix_warehouse = [[im_dict.copy() for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
+        self.max_displacement = np.zeros_like(self.im_boolean_matrix, dtype=np.float32).T # nDms x nLPs
 
         with h5py.File(filename, 'r') as f:
             # Loop over the light paths
@@ -429,21 +449,21 @@ class InteractionMatrixHandler:
                         for k in range(len(self.dm_scanned_list)):
                             if self.im_boolean_matrix[i,k]: # DM with an interaction with the current LP
                                 # Check the parameters
-                                if (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[j].nValidAct) and \
-                                   (f[lp_match_key]['IM' + str(j)].attrs['altitude']  == self.dm_scanned_list[j].altitude) and \
-                                   (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[j].nValidAct):
+                                if (f[lp_match_key]['IM' + str(j)].attrs['nValidAct'] == self.dm_scanned_list[k].nValidAct) and \
+                                   (f[lp_match_key]['IM' + str(j)].attrs['altitude']  == self.dm_scanned_list[k].altitude) and \
+                                   (f[lp_match_key]['IM' + str(j)].attrs['nAct'] == self.dm_scanned_list[k].nActs):
                                     # We have a match with the current DM
                                     dm_match_idx = k
-                                    break
-                        
-                        if dm_match_idx is None:
-                            self.logger.error('InteractionMatrixHandler::load_IM - The DMs do not match the IM.')
-                            raise ValueError('The DMs do not match the IM.')
-                        
-                        # Store the IM
-                        self.interaction_matrix_warehouse[j][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
-                        self.interaction_matrix_warehouse[j][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
-            
+                                    # Store the IM
+                                    self.interaction_matrix_warehouse[dm_match_idx][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
+                                    self.interaction_matrix_warehouse[dm_match_idx][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
+
+                                    self.max_displacement[j, i] = f[lp_match_key]['IM' + str(j)].attrs['maxDisplacement']
+
+                                    # Break to continue with the next IM                                    
+                                    break                        
+        
+        self.logger.info(f'Max. displacement info: DM x LP: {self.max_displacement}')    
         self.logger.info('InteractionMatrixHandler::load_IM - Ended succesfully.')
 
         return True
@@ -487,14 +507,14 @@ class InteractionMatrixHandler:
             # Check DMs and load!
             if len(f[self.modal_list[0]]) == len(self.dm_scanned_list):
                 for i in range(len(self.dm_scanned_list)):
-                    dm_name = 'DM' + str(self.dm_scanned_list[i].nValidAct)
+                    dm_name = 'DM' + str(i)
 
                     if dm_name in f[self.modal_list[0]].keys():
                         if f[self.modal_list[0]][dm_name].attrs['nValidAct'] != self.dm_scanned_list[i].nValidAct:
                             self.logger.error(f'InteractionMatrixHandler::load_modalBasis - The number of validActs is not consistent.')
                             raise ValueError('InteractionMatrixHandler::load_modalBasis - The number of validActs is not consistent.')
 
-                        if f[self.modal_list[0]][dm_name].attrs['nAct'] != self.dm_scanned_list[i].nAct:
+                        if f[self.modal_list[0]][dm_name].attrs['nAct'] != self.dm_scanned_list[i].nActs:
                             self.logger.error(f'InteractionMatrixHandler::load_modalBasis - The number of acts is not consistent.')
                             raise ValueError('InteractionMatrixHandler::load_modalBasis - The number of acts is not consistent.')  
                         # The data is consistent, load it into the class

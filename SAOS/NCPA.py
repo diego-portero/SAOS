@@ -1,146 +1,139 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Dec  3 13:22:10 2022
-
-@author: cheritier -- astriffl
-"""
 import numpy as np
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CLASS INITIALIZATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-class NCPA:
-    
-    def __init__(self, 
-                 tel,
-                 dm,
-                 atm,
-                 modal_basis='KL',
-                 coefficients = None,
-                 f2=None,
-                 seed=5,
-                 M2C=None):
-        """
-        ************************** REQUIRED PARAMETERS **************************
-        
-        An NCPA object consists in defining the 2D map that acts as a static OPD offset. It requires the following parameters
-        _ tel              : the telescope object that contains all the informations (diameter, pupil, etc)
-        _ dm               : the deformable mirror object that contains all the informations (nAct, misregistrations, etc)
-        _ atm              : the atmosphere object that contains all the informations (layers, r0, windspeed, etc)
-                
-        ************************** OPTIONAL PARAMETERS **************************
-        
-        _ modal_basis            : str, 'KL' (default), 'Zernike', or 'M2C' to import from an M2C matrix, as modal basis for NCPA generation
-        _ coefficients           : a list of coefficients of chosen modal basis. The coefficients are normalized to 1 m. 
-        _ f2                     : a list of 3 elements [amplitude, start mode, end mode, cutoff_freq] which will follow 1/f2 law
-        _ seed                   : pseudo-random value to create the NCPA with repeatability 
-        _ M2C                    : M2C matrix to compute modal basis if modal_basis is set to 'M2C'
-        
-        ************************** MAIN PROPERTIES **************************
-        
-        The main properties of a NCPA object are listed here: 
-        _ NCPA.OPD       : the optical path difference map
 
-        ************************** EXEMPLE **************************
-        
-        1) Create a blank NCPA object corresponding to a Telescope object
-        ncpa = NCPA(tel,dm,atm)
-        
-        2) Update the OPD of the NCPA object using a given OPD_map
-        ncpa.OPD = OPD_map
-        
-        2) Create a source object in H band with a magnitude 8 and combine it to the telescope
-        src = Source(optBand = 'H', magnitude = 8) 
-        src*tel
-        
-        3) Create an NCPA object corresponding based on a linear combinaison of modal coefficients(Zernike or KL)
-        list_coefficients = [0,0,10e-9,20e-9]
-        ncpa = NCPA(tel,dm,atm,coefficients = list_coefficients)                  --> NCPA based on KL modes
-        ncpa = NCPA(tel,dm,atm,modal_basis='Zernike',coefficients = list_coefficients) --> NCPA based on Zernikes modes
-        
-        4) Create an NCPA following an 1/f2 distribution law on modes amplitudes
-        ncpa = NCPA(tel,dm,atm,f2=[200e-9,5,25,1])  --> 200 nm RMS NCPA as an 1/f2 law of modes 5 to 25 with a cutoff frequency of 1
+import h5py
+import cv2
+
+import logging
+import logging.handlers
+from queue import Queue
+
+class NCPA:
+    def __init__(self,
+                 telescope,
+                 logger = None):
         """
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% INITIALIZATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        self.basis = modal_basis
-        self.tel   = tel
-        self.atm   = atm
-        self.dm    = dm
-        self.seed  = seed
-        self.M2C   = M2C
-        
-        if f2 is None:
-            if coefficients is None:
-                self.OPD = self.tel.pupil.astype(float)
-            
-            if coefficients is not None:
-                if type(coefficients) is list:
-                    if self.basis=='KL':
-                        self.B = self.KL_basis()[:,:,:len(coefficients)]
-                        
-                    if self.basis=='Zernike':
-                        n_max = len(coefficients)
-                        self.B = self.Zernike_basis(n_max)
-                else:
-                    raise TypeError('The zernike coefficients should be input as a list.')        
-                    
-            self.OPD = np.matmul(self.B,np.asarray(coefficients))
-            
+        Initialize a NCPA generator.
+
+        Parameters
+        ----------
+        telescope : Telescope
+            Telescope object to which the WFS is attached.
+        """        
+        # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
+        if logger is None:
+            self.queue_listerner = self.setup_logging()
+            self.logger = logging.getLogger()
+            self.external_logger_flag = False
         else:
-            self.NCPA_f2_law(f2)
+            self.external_logger_flag = True
+            self.logger = logger
+
+        # Define class attributes
+        self.tag = 'ncpa'
         
-        self.tag = 'NCPA'
-        self.print_properties()
-            
-    def NCPA_f2_law(self,f2):
-        if type(f2) is list and len(f2)==4:
-            if self.basis=='KL':
-                self.B = self.KL_basis()
-                phase = np.sum([np.random.RandomState(i*self.seed).randn()/np.sqrt(i+f2[3])*self.B[:,:,i] for i in range(f2[1],f2[2])],axis=0)
-                self.OPD = phase / np.std(phase[np.where(self.tel.pupil==1)]) * f2[0]
-                
-            if self.basis=='Zernike':
-                self.B = self.Zernike_basis(f2[2])
-                self.OPD = np.sum([np.random.RandomState(i*self.seed).randn()/np.sqrt(i+f2[3])*self.B[:,:,i] for i in range(f2[1],f2[2])],axis=0)
-                self.OPD = self.OPD / np.std(self.OPD[np.where(self.tel.pupil==1)]) * f2[0]
-                
-            if self.basis=='M2C':
-                if self.M2C is not None:
-                    self.B = self.M2C_basis(self.M2C)
-                    self.coefs = ([np.random.RandomState(i*self.seed).randn()/np.sqrt(i+f2[3])*self.B[:,:,i] for i in range(f2[1],f2[2])])
-                    phase = np.sqrt(np.sum(np.array(self.coefs)**2, axis=0))
-                    self.OPD = phase / np.std(phase[np.where(self.tel.pupil==1)]) * f2[0]
-                else:
-                    raise TypeError('M2C should not be None if modal_basis is set to \'M2C\'')
-                
-        else:
-            raise TypeError('f2 should be a list containing [amplitude, start_mode, end_mode, cutoff]')
+        # Generate empty OPD
+
+        self.ncpa_opd = np.zeros_like(telescope.pupil, dtype=np.float32)
+
+
+    def load(self, filename): 
+        """
+        Load the NCPA OPD from a H5 file.
+
+        Parameters
+        ----------
+        filename : str
+            Path and base filename (with extension) of the H5 file to load.
+
+        Returns
+        -------
+        bool
+            True if loaded successfully.
+        """
+        self.logger.debug('NCPA::load')
+
+
+        if not filename.endswith(".h5"):
+            filename += ".h5"        
+
+        with h5py.File(filename, 'r') as f:
+            temp_opd = f['opd']['data'][()]
+
+            self.logger.info(f"NCPA::load - Loaded OPD.")     
+
+        if (temp_opd.shape[0] != self.ncpa_opd.shape[0]) or (temp_opd.shape[1] != self.ncpa_opd.shape[1]):
+            self.logger.warning('NCPA::Load - The dimensions of the NCPA do not match the telescope\'s pupil. Interpolating, may introduce artifacs.')
+            self.ncpa_opd = cv2.resize(temp_opd, (self.ncpa_opd.shape[0], self.ncpa_opd.shape[1]), interpolation=cv2.INTER_LINEAR)
+
+        return True
+    
+    def setOPD(self, input_opd):
+        """
+        set the NCPA OPD directly from a variable
+
+        Parameters
+        ----------
+        input_opd : np.ndarray
+            Input OPD in [m]
+
+        Returns
+        -------
+        bool
+            True if loaded successfully,.
+        """
+        self.logger.debug('NCPA::load')
+
+        if (input_opd.shape[0] != self.ncpa_opd.shape[0]) or (input_opd.shape[1] != self.ncpa_opd.shape[1]):
+            self.logger.error('NCPA::setOPD - The dimensions of the NCPA do not match the telescope\'s pupil. Rejecting.')
+            raise ValueError('The dimensions of the NCPA do not match the telescope\'s pupil.')
+
+        self.ncpa_opd = input_opd.copy()
         
-    def KL_basis(self):
-        from SAOS.calibration.compute_KL_modal_basis import compute_KL_basis
-        M2C_KL = compute_KL_basis(self.tel, self.atm, self.dm,lim=1e-2)
-        self.dm.coefs = M2C_KL
-        self.tel*self.dm
-        B = self.tel.OPD
-        return B
+        return True
     
-    def Zernike_basis(self,n_max):
-        from SAOS.Zernike import Zernike
-        self.Z = Zernike(self.tel,J=n_max)
-        self.Z.computeZernike(self.tel)
-        B = self.Z.modesFullRes
-        return B
+    def getPhase(self):
+        """
+        Returns the NCPA OPD.
+
+        Parameters
+        ----------
+        Returns
+        -------
+        np.ndarray
+            NCPA OPD [m]
+        """
+        self.logger.debug('NCPA::getPhase')
+       
+        return self.ncpa_opd
     
-    def M2C_basis(self, M2C):
-        self.dm.coefs = M2C
-        self.tel*self.dm
-        B = self.tel.OPD
-        return B
+
+    def setup_logging(self, logging_level=logging.WARNING):
+        #
+        #  Setup of logging at the main process using QueueHandler
+        log_queue = Queue()
+        queue_handler = logging.handlers.QueueHandler(log_queue)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging_level)  # Minimum log level
+
+        # Setup of the formatting
+        formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s"
+        )
+
+        # Output to terminal
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+
+        # Qeue handler captures the messages from the different logs and serialize them
+        queue_listener = logging.handlers.QueueListener(log_queue, console_handler)
+        root_logger.addHandler(queue_handler)
+        queue_listener.start()
+
+        return queue_listener
     
-    def print_properties(self):
-        print()
-        print('------------ NCPA ------------')
-        print('{:^20s}|{:^9s}'.format('Modal basis',self.basis))
-        print('{:^20s}|{:^9.2f}'.format('Amplitude [nm RMS]',np.std(self.OPD[np.where(self.tel.pupil>0)])*1e9))
-        print('------------------------------')
-        
-    def __repr__(self):
-        self.print_properties()
-        return ' '
+    # The logging Queue requires to stop the listener to avoid having an unfinalized execution. 
+    # If the logger is external, then the queue is stop outside of the class scope and we shall
+    # avoid to attempt its destruction
+    def __del__(self):
+        if not self.external_logger_flag:
+            self.queue_listerner.stop()

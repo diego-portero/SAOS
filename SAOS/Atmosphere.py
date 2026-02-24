@@ -59,7 +59,7 @@ class Atmosphere:
                  windDirection:list,
                  altitude:list,
                  telescope,
-                 mode:float=1,
+                 zenith:float=0.0,
                  logger=None):
         """
         Initialize an Atmosphere object representing layered atmospheric turbulence.
@@ -67,7 +67,7 @@ class Atmosphere:
         Parameters
         ----------
         r0 : float
-            Fried parameter at 500 nm [m].
+            Fried parameter at 500 nm [m] and pointing to zenith.
         L0 : float
             Outer scale of turbulence [m].
         windSpeed : list of float
@@ -80,6 +80,8 @@ class Atmosphere:
             Altitude of each layer [m].
         telescope : Telescope object
             Telescope class instantiation to take certain parameters required for the atmosphere.
+        zenith : float, optional, by default 0.0
+            Zenith angle [degrees] of the telescope during the simulation, to automatically convert the r0 given to the specific conditions.
         logger : logging.Logger, optional
             Logger instance for this object, by default None.
         """
@@ -92,16 +94,17 @@ class Atmosphere:
             self.logger = logger
 
         self.hasNotBeenInitialized  = True
-        self.r0                     = r0                # Fried Parameter in m 
-        self.fractionalR0           = fractionalR0      # CFractional Cn2 profile of the turbulence
-        self.L0                     = L0                # Outer Scale in m
-        self.altitude               = altitude          # altitude of the layers
-        self.nLayer                 = len(fractionalR0) # number of layer
-        self.windSpeed              = windSpeed         # wind speed of the layers in m/s
-        self.windDirection          = windDirection     # wind direction in degrees
-        self.tag                    = 'atmosphere'      # Tag of the object
+        self.r0                     = r0                     # Fried Parameter in m, at 500 nm and pointing to the zenith
+        self.fractionalR0           = fractionalR0           # Fractional Cn2 profile of the turbulence
+        self.L0                     = L0                     # Outer Scale in m
+        self.altitude               = altitude               # altitude of the layers
+        self.nLayer                 = len(fractionalR0)      # number of layer
+        self.windSpeed              = windSpeed              # wind speed of the layers in m/s
+        self.windDirection          = windDirection          # wind direction in degrees
+        self.zenith                 = zenith * (np.pi/180)   # Zenith angle of the telescope during simulation
+        self.tag                    = 'atmosphere'           # Tag of the object
 
-        self.wavelength             = 500*1e-9          # Wavelength used to define the properties of the atmosphere
+        self.wavelength             = 500*1e-9               # Wavelength used to define the properties of the atmosphere
 
         self.logger.debug('Atmosphere::initializeAtmosphere - Taking key parameters from the telescope.')
         self.resolution = telescope.resolution
@@ -111,6 +114,25 @@ class Atmosphere:
         self.fov      = telescope.fov
         self.fov_rad  = telescope.fov_rad
         
+        # Sanity check
+        if len(self.windSpeed) < self.nLayer:
+            self.logger.error('Atmosphere::__init - Wind speed list size is smaller than the number of layers')
+            raise ValueError('Wind speed list size is smaller than the number of layers')
+        elif len(self.windSpeed) > self.nLayer:
+            self.logger.warning('Atmosphere::__init - Wind speed list size is larger than the number of layers. Only the first layers are considered.')
+        
+        if len(self.windDirection) < self.nLayer:
+            self.logger.error('Atmosphere::__init - Wind direction list size is smaller than the number of layers')
+            raise ValueError('Wind direction list size is smaller than the number of layers')
+        elif len(self.windDirection) > self.nLayer:
+            self.logger.warning('Atmosphere::__init - Wind direction list size is larger than the number of layers. Only the first layers are considered.')
+
+        if len(self.altitude) < self.nLayer:
+            self.logger.error('Atmosphere::__init - Altitude list size is smaller than the number of layers')
+            raise ValueError('Altitude list size is smaller than the number of layers')
+        elif len(self.altitude) > self.nLayer:
+            self.logger.warning('Atmosphere::__init - Altitude list size is larger than the number of layers. Only the first layers are considered.')            
+
     def initializeAtmosphere(self, randomState=None):
         """
         Initialize the atmosphere layers and associate them with a telescope.
@@ -170,7 +192,7 @@ class Atmosphere:
         layer.seed          = seed + i_layer*1000
         
         # gather properties of the atmosphere
-        layer.altitude      = self.altitude[i_layer]       
+        layer.altitude      = self.altitude[i_layer] / np.cos(self.zenith)       
         layer.windSpeed     = self.windSpeed[i_layer]
         layer.windDirection = self.windDirection[i_layer]
         
@@ -182,7 +204,7 @@ class Atmosphere:
 
         self.logger.debug('Atmosphere::buildLayer - Creating layer '+str(i_layer+1))    
 
-        layer.fractionalR0 = self.r0*self.fractionalR0[i_layer]**(-3/5)
+        layer.fractionalR0 = self.r0*(np.cos(self.zenith)**0.6)*(self.fractionalR0[i_layer]**(-3/5))
 
         layer.screen = PhaseScreenVonKarman(nx_size=layer.npix, pixel_scale=layer.spatial_res, r0 = layer.fractionalR0, 
                                             L0 = self.L0, random_seed = layer.seed, n_columns=2, logger=self.logger)
@@ -294,7 +316,7 @@ class Atmosphere:
             self.logger.info(f"Atmosphere::load - All layers finished.")     
     
 
-            return False
+            return True
 
     def update(self):
         """
@@ -379,7 +401,7 @@ class Atmosphere:
         list_src = []
 
         if src.tag == 'sun':
-            for subDir in src.sun_subDir_ast.src:
+            for subDir in src.subDirs_stars:
                 list_src.append(subDir)
         else:
             list_src.append(src)

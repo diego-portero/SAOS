@@ -7,13 +7,10 @@ from time import time as tm
 # Entry point to the library, so as to simplify the usage and match the interface of the other modal bases
 
 def generate_zernike_modes(dm, nModes=None, useTorch=False, include_piston=False):
-    # Read the main parameters of the DM: nActs and pupil mask
-    pupil_mask = dm.validAct_2D
-    nActs = dm.nValidAct
 
     # If the modes are not specified, use the number of actuators --> maximum number of modes
     if nModes is None:
-        nModes = nActs
+        nModes = dm.nValidAct
 
     if include_piston:
         Noffset = 1
@@ -22,10 +19,10 @@ def generate_zernike_modes(dm, nModes=None, useTorch=False, include_piston=False
     
     # Get the Zernike modes
     
-    zern_modes = get_zernikes(pupil_mask, nModes, Noffset)
+    zern_modes = get_zernikes(dm.coordinates, dm.validAct, nModes, Noffset)
     
     # Normalize between -1 and 1
-    max_values = np.max(np.abs(zern_modes), axis=(0,1), keepdims=True)
+    max_values = np.max(np.abs(zern_modes), axis=0, keepdims=True)
     max_values[max_values == 0] = 1
     zern_modes = zern_modes / max_values
     
@@ -37,25 +34,31 @@ def generate_zernike_modes(dm, nModes=None, useTorch=False, include_piston=False
 # Generate zernikes, this process is split form the main call function to provide a better interface for the KL modal base
 # that requires the generation of the full set of Zernikes, not normalized and without the pupil occlusion and spider.
 
-def get_zernikes(pupil_mask, nModes, Noffset):
+def get_zernikes(coordinates, validActs, nModes, Noffset):
 
-    zern_modes = np.zeros((pupil_mask.shape[0], pupil_mask.shape[1], nModes))
+    zern_modes = np.zeros((coordinates.shape[0], nModes))
 
     Z_machine = ZernikeNaive(mask=[])
-    x = np.linspace(-1, 1, pupil_mask.shape[0])
-    xx, yy = np.meshgrid(x, x)
-    yy = yy[::-1]
 
-    rho = np.sqrt(xx ** 2 + yy ** 2)
-    theta = np.arctan2(yy, xx)
+    rho = np.sqrt(coordinates[:,0]**2 + coordinates[:,1]**2)
+    theta = np.arctan2(coordinates[:,1], coordinates[:,0])
 
     for j in range(nModes):
         Z, _ = Z_machine.Z_nm(j + Noffset, rho, theta, True, 'Standard')
+        Z[~validActs] = 0.0
+        
+        # Remove piston
+        Z[validActs] -= np.mean(Z[validActs])
+        
+        # Normalize energy to 1
+        energy = np.sqrt(np.mean(Z[validActs]**2))
+        if energy > 0:
+            Z /= energy
+        
         # Apply the pupil mask
-        zern_modes[:, :, j] = Z * pupil_mask
-    
-    return zern_modes
+        zern_modes[:, j] = Z
 
+    return zern_modes
 
 ### --------------------------------------- ###
 # -#                   ZERN                  #-#

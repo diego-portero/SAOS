@@ -12,38 +12,56 @@ from SAOS.modalBasis.zernikeModes import ZernikeNaive, get_zernikes
 # correct the original amplitude by the atmosphere conditions.
 
 def generate_kl_modes(dm, nModes=None, useTorch=False):
-    # Read the main parameters of the DM: nActs and pupil mask
-    pupil_mask = dm.validAct_2D
-    nActs = dm.nValidAct
 
     # If the modes are not specified, use the number of actuators --> maximum number of modes
     if nModes is None:
-        nModes = nActs
+        nModes = dm.nValidAct
 
-    kl_modes = np.zeros((pupil_mask.shape[0], pupil_mask.shape[1], nModes))
+    kl_modes = np.zeros((dm.coordinates.shape[0], nModes))
 
-    # Implementation based on Anzuloa and Gladysz (2017), original work from Roddier (1990)
+    # Implementation based on Anzuloa and Gladysz (2017), original work from Roddier (1990) + Double Diagonalisation in Verinaud and Correia (2023)
+    # Based on the python implementation of SPECULA: https://github.com/ArcetriAdaptiveOptics/SPECULA/blob/955a4840635b2d68ce766a0cc98ab706b88299e8/specula/lib/modal_base_generator.py
 
+    # Get metric on how far from orthogonal are the Zernikes in the DM:
     Noffset = 2 # +1 due to Noll's index starting at 1, +1 due to the piston mode
+    zernikes = get_zernikes(dm.coordinates, dm.validAct, nModes, Noffset)
+
+    zernikes_qr, R =  np.linalg.qr(zernikes[dm.validAct,:])
+
+    zernikes_ortho = np.zeros_like(zernikes)
+
+    zernikes_ortho[dm.validAct,:] = zernikes_qr
+    zernikes_ortho[~dm.validAct,:] = 0.0
+
+    # Compute atmosphere Covariance Matrix
 
     Z_covmat = generate_covariance_matrix(nModes, Noffset)
 
-    _, _, U = np.linalg.svd(Z_covmat)
+    # Transform the CovMat to the Orthogonal space
 
-    zernikes = get_zernikes(pupil_mask, nModes, Noffset)
+    Rinv = np.linalg.inv(R)
+    Z_covmat_ortho = Rinv @ Z_covmat @ Rinv.T
 
-    kl_modes = np.zeros_like(zernikes)
+    # Now, do the second diagonalisation --> orthogonality w.r.t atmosphere
 
-    # Correct each Zernike to de-correlate them and generate the KL modes
-    for i in range(nModes):
-        for j in range(nModes):
-            kl_modes[:, :, i] += U[j, i] * zernikes[:, :, j]
-    
+    evals, U = np.linalg.eigh(Z_covmat_ortho)
+
+    # Sort by descending value
+    idx = np.argsort(evals)[::-1]
+    evals = evals[idx]
+    U = U[:, idx]
+
+    # Transform eigenvector to the original space
+
+    kl_modes = zernikes_ortho @ U
+
+    kl_modes[~dm.validAct,:] = 0.0
+       
     # Normalize between -1 and 1
-    max_values = np.max(np.abs(kl_modes), axis=(0,1), keepdims=True)
+    max_values = np.max(np.abs(kl_modes), axis=0, keepdims=True)
     max_values[max_values == 0] = 1
     kl_modes = kl_modes / max_values
-    
+
     # Check torch option
     if useTorch:
         return torch.tensor(kl_modes, dtype=torch.float32)
@@ -76,12 +94,33 @@ def generate_covariance_matrix(nModes, Noffset=1):
 
     zernObj = ZernikeNaive(mask=[])
 
-    for j in range(1, Z_covmat.shape[0] + 1):
-        for j_prima in range(1, Z_covmat.shape[1] + 1):
-            n, m = zernObj.zernIndex(j + Noffset)
-            n_prima, m_prima = zernObj.zernIndex(j_prima + Noffset)
-            Z_covmat[j - 1, j_prima - 1] = compute_covariance(j + Noffset, j_prima + Noffset, n,
-                                                                    n_prima, m, m_prima)
+    # Precompute indices
+    j_offset = np.empty(nModes, dtype=np.int32)
+    n_arr    = np.empty(nModes, dtype=np.int32)
+    m_arr    = np.empty(nModes, dtype=np.int32)
+
+    for i in range(nModes):
+        j = i+1
+        j_offset[i] = j + Noffset
+        n_arr[i], m_arr[i] = zernObj.zernIndex(j_offset[i])
+
+    # Compute covariance using Symmetry:
+
+    for i in range(nModes):
+        ji = j_offset[i]
+        ni = n_arr[i]
+        mi = m_arr[i]
+
+        Z_covmat[i, i] = compute_covariance(ji, ji, ni, ni, mi, mi)
+
+        for k in range(i+1, nModes):
+            jk = j_offset[k]
+            nk = n_arr[k]
+            mk = m_arr[k]
+
+            val  = compute_covariance(ji, jk, ni, nk, mi, mk)
+            Z_covmat[i, k] = val
+            Z_covmat[k, i] = val
 
     return Z_covmat
 

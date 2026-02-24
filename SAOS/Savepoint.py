@@ -21,7 +21,7 @@ This module contains the `Savepoint` class, used for to save the data of adaptiv
 """
 
 class Savepoint:
-    def __init__(self, file_path=None, atm=0, atm_per_dir=0, dm=0, dm_per_dir=0, slopes=0, wfs=0, wfs_frame=0, sci=0, sci_frame=0, logger=None):
+    def __init__(self, file_path=None, atm=0, atm_per_dir=0, dm=0, dm_per_dir=0, slopes=0, error= 0, wfs=0, wfs_frame=0, sci=0, sci_frame=0, only_metrics=False, logger=None):
         """
         Initialize the Savepoint object for saving simulation data.
 
@@ -44,6 +44,9 @@ class Savepoint:
         slopes : int
             Flag to save slopes data. If 0, the slopes data will not be saved. 
             Larger than 0, it will be saved with the specified decimation factor.
+        error : int
+            Flag to save the wavefront error buffer. If 0, the error data will not be saved.
+            Larger than 0, it will be saved with the specified decimation factor.
         wfs : int
             Flag to save wavefront sensor phase. If 0, the WFS data will not be saved. 
             Larger than 0, it will be saved with the specified decimation factor.
@@ -56,6 +59,9 @@ class Savepoint:
         sci_frame : int
             Flag to save science frame. If 0, the science frame will not be saved. 
             Larger than 0, it will be saved with the specified decimation factor.
+        only_metrics : bool
+            If True, only the metrics of the buffers are saved. If false, the data
+            is included as well.
         logger : logging.Logger, optional
             External logger to use. If None, initializes internal logging.        
         """
@@ -72,10 +78,12 @@ class Savepoint:
         self.dm = dm
         self.dm_per_dir = dm_per_dir
         self.slopes = slopes
+        self.error = error
         self.wfs = wfs
         self.wfs_frame = wfs_frame
         self.sci = sci
         self.sci_frame = sci_frame
+        self.only_metrics = only_metrics
 
         # Create the file path if not provided
         if not self.file_path:
@@ -112,7 +120,7 @@ class Savepoint:
                 self.custom_create_dataset('atmosphere_layered', atm_layer_grp, iteration, getattr(data_group, layer_name).screen.scrn, mask=None)
         
         if self.dm and group_name.find('DeformableMirror')>=0:
-            self.custom_create_dataset('dm_layer', group, iteration, data_group.dm_layer.cmd_2D, mask=data_group.validAct_2D[None, ...])
+            self.custom_create_dataset('dm_layer', group, iteration, data_group.dm_layer.cmd_1D, mask=data_group.validAct[None, ...])
                 
         if self.atm_per_dir and group_name.find('LightPath')>=0:
             # Pupil mask to compute statistics
@@ -139,6 +147,11 @@ class Savepoint:
             self.custom_create_dataset('slopes_1D', slopes1d_grp, iteration, data_group.slopes_1D, mask=None)
             slopes2d_grp = group.create_group('slopes_2D')
             self.custom_create_dataset('slopes_2D', slopes2d_grp, iteration, data_group.slopes_2D, mask=None)
+
+        if self.error and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
+            # Create group and add the datasets with the statistics ( mask is not needed)
+            error_grp = group.create_group('error')
+            self.custom_create_dataset('slopes_1D', error_grp, iteration, data_group.get_wavefront_error(), mask=None)            
 
         if self.wfs and group_name.find('LightPath')>=0 and (data_group.wfs is not None):
             # Pupil mask to compute statistics
@@ -250,11 +263,11 @@ class Savepoint:
             dict_stats['std'] = np.array([np.std(data.reshape(data.shape[0], -1), axis=1)])
             dict_stats['rms'] = np.array([np.sqrt(np.mean(data.reshape(data.shape[0], -1)**2, axis=1))])
         elif data_type == 'dm_layer':
-            dict_stats['min'] = np.array([np.min(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['max'] = np.array([np.max(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['mean'] = np.array([np.mean(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['std'] = np.array([np.std(data.reshape(data.shape[0], -1)[:, mask.ravel()], axis=1)])
-            dict_stats['rms'] = np.array([np.sqrt(np.mean(data.reshape(data.shape[0], -1)[:, mask.ravel()]**2, axis=1))])
+            dict_stats['min'] = np.array([np.min(data[mask.ravel()])])
+            dict_stats['max'] = np.array([np.max(data[mask.ravel()])])
+            dict_stats['mean'] = np.array([np.mean(data[mask.ravel()])])
+            dict_stats['std'] = np.array([np.std(data[mask.ravel()])])
+            dict_stats['rms'] = np.array([np.sqrt(np.mean(data[mask.ravel()]**2))])
         elif data_type == 'slopes_1D':
             dict_stats['min'] = np.array([[np.min(data[0:data.shape[0]//2]), np.min(data[data.shape[0]//2:])]])
             dict_stats['max'] = np.array([[np.max(data[0:data.shape[0]//2]), np.max(data[data.shape[0]//2:])]])
@@ -275,12 +288,10 @@ class Savepoint:
                 else:
                     dict_stats['contrast'] = np.array([0.0])
                 
-                img = data.squeeze() * 860e6
-
                 # Get median filtered image
                 kernel = np.ones((3,3))
                 kernel /= np.prod(kernel.shape)
-                med = signal.convolve2d(img, kernel, mode='same', boundary='symm')
+                med = signal.convolve2d(np.squeeze(data), kernel, mode='same', boundary='symm')
                 # Create Gradient filters
                 kx = np.array(([-3, 0, 3], [-10, 0, 10], [-3, 0, 3]))
                 ky = np.rot90(kx)
@@ -288,8 +299,8 @@ class Savepoint:
                 kx_med = signal.convolve2d(med, kx, mode='same', boundary='symm')
                 ky_med = signal.convolve2d(med, ky, mode='same', boundary='symm')
                 # Compute gradient of the original image
-                kx_img = signal.convolve2d(img, kx, mode='same', boundary='symm')
-                ky_img = signal.convolve2d(img, ky, mode='same', boundary='symm')
+                kx_img = signal.convolve2d(np.squeeze(data), kx, mode='same', boundary='symm')
+                ky_img = signal.convolve2d(np.squeeze(data), ky, mode='same', boundary='symm')
                 # combine gradients
                 g_img = np.sum(np.hypot(kx_img, ky_img))
                 g_med = np.sum(np.hypot(kx_med, ky_med))
@@ -297,10 +308,7 @@ class Savepoint:
                 numerator = 2.0 * g_img * g_med
                 denominator = g_img**2 + g_med**2
 
-                if denominator < 1e-9:
-                   dict_stats['MFGS'] = np.array([0.0])
-                else:                   
-                    dict_stats['MFGS'] = np.array([numerator / denominator])                                                  
+                dict_stats['MFGS'] = np.array([0.0 if denominator < 1e-9 else numerator / denominator])                                                 
             else:
                  ideal_psf = lp.sci.fake_src_dict[str(int(lp.src.wavelength*1e9))]
                  
@@ -321,7 +329,7 @@ class Savepoint:
         Parameters
         ----------
         data_type : str
-            Type of data ('phase', 'opd', 'slopes_1D', 'slopes_2D', 'sci_frame').
+            Type of data ('phase', 'opd', 'slopes_1D', 'slopes_2D', 'error', 'sci_frame').
         group : h5py.Group
             The group in which to append the dataset.
         iteration : int
@@ -339,13 +347,14 @@ class Savepoint:
         if data_type == 'atmosphere_layered':
             mask = None
         elif data_type == 'dm_layer':
-            mask = data_object.validAct_2D[None, ...]
+            mask = data_object.validAct[None, ...]
         else:
             mask = data_object.tel.pupil[None, ...]
         
         new_data = self.compute_stats(data, mask, data_type, lp=data_object)
-        # Add the keys for the data and the iteration, aprt from the stadistics
-        new_data['data'] = data
+        # Add the keys for the data and the iteration, apart from the stadistics
+        if not self.only_metrics:
+            new_data['data'] = data
         new_data['iteration'] = np.array([iteration])
 
         for stat_name, value in new_data.items():
@@ -392,7 +401,7 @@ class Savepoint:
                         self.initialize_hdf5_file(f, group_name, data_object[i], iteration)
                     else:
                         grp = f[group_name]
-                        self.append_to_dataset('dm_layer', grp, iteration, data_object[i].dm_layer.cmd_2D, data_object[i])                        
+                        self.append_to_dataset('dm_layer', grp, iteration, data_object[i].dm_layer.cmd_1D, data_object[i])                        
 
             if tag == 'lightpath':
                 light_path = data_object
@@ -425,6 +434,11 @@ class Savepoint:
                             self.append_to_dataset('slopes_1D', grp, iteration, lp.slopes_1D, lp)
                             grp = group['slopes_2D']
                             self.append_to_dataset('slopes_2D', grp, iteration, lp.slopes_2D, lp)
+
+                        # Error
+                        if self.error and ((iteration+1)%self.error) == 0 and (lp.wfs is not None):
+                            grp = group['error']
+                            self.append_to_dataset('slopes_1D', grp, iteration, lp.get_wavefront_error(), lp)
 
                         # WFS
                         if self.wfs and ((iteration+1)%self.wfs) == 0 and (lp.wfs is not None):
