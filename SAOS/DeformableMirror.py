@@ -209,8 +209,11 @@ class DeformableMirror:
             self.dyn_C = None
             self.dyn_D = None
 
-        # Compute the explicit OOPAO-style global pseudo-inverse projector for automatic open-loop Phase fitting
-        self.projector = torch.linalg.pinv(self.phi_eval)
+        # Compute the explicit OOPAO-style global pseudo-inverse projector for automatic open-loop Phase fitting.
+        # To avoid introducing excesive edge effect, we mask the region of the influence functions that are outside 
+        # of the metapupil (or pupil, depending on the conjugation).
+        pupil_mask_1d = torch.as_tensor(self.dm_layer.metapupil.flatten(), device=self.device, dtype=torch.float64).unsqueeze(1)
+        self.projector = torch.linalg.pinv(self.phi_eval * pupil_mask_1d)
     
     # Generation of the cartesian coordinates and mask of valid actuators using the outer pupil limit
     
