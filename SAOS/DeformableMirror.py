@@ -208,6 +208,9 @@ class DeformableMirror:
             self.dyn_B = None
             self.dyn_C = None
             self.dyn_D = None
+
+        # Compute the explicit OOPAO-style global pseudo-inverse projector for automatic open-loop Phase fitting
+        self.projector = torch.linalg.pinv(self.phi_eval)
     
     # Generation of the cartesian coordinates and mask of valid actuators using the outer pupil limit
     
@@ -594,8 +597,13 @@ class DeformableMirror:
 
         if isinstance(val, torch.Tensor):
             if val.squeeze().ndim > 1:
-                self.logger.error(f'DeformableMirror::updateDMShape - Shape of the command is not supported. Expected 1D array.')                
-                raise ValueError('Shape of the command is not supported. Expected 1D array.')
+                # Feature: Automatically project 2D Target Phase maps (Open Loop target fitting) into appropriate commands!
+                if val.shape[0] == self.dm_layer.D_px and val.shape[1] == self.dm_layer.D_px:
+                    val = self.projector @ val.flatten().to(dtype=torch.float64, device=self.device)
+                else:
+                    self.logger.error(f'DeformableMirror::updateDMShape - 2D Phase Shape not supported. Expected {[self.dm_layer.D_px, self.dm_layer.D_px]}, got {list(val.shape)}.')                
+                    raise ValueError('Shape of the command/phase is not supported.')
+                    
             if val.shape[0] == self.validAct.shape[0]:
                 # Command received is 1D, without filtering the unused actuators
                 val = val[self.validAct]
