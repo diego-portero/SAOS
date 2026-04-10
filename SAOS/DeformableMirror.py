@@ -105,7 +105,7 @@ class DeformableMirror:
             validActThreshpercentage : float, optional
                 Parameter to select a percentage of the actuator pitch to consider it valid o not.
             maxStrokePtV : float, optional
-                Maximum mechanical stroke peak-to-valley in [m]. By default 100e-6 [m].
+                Maximum mechanical stroke peak-to-valley in [m]. By default 200e-6 [m].
             dynamicModel : str, optional
                 Path to the h5 file containing the state-space model of the Deformable Mirror.
         """
@@ -149,7 +149,7 @@ class DeformableMirror:
 
         self.valid_act_thresh_outer = valid_act_thresh_outer
         self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.0) # Dasp uses 0.7533, but the border are not seen well, which inestabilizes the loop.
-        self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 200e-6) # [m]
         self.dynamic_model_path = kwargs.get('dynamicModel', '')
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
