@@ -32,7 +32,8 @@ class dmLayerClass():
         self.altitude = None
         self.D_fov                  = None # diameter of the DM projected into the altitude layer [meters]
         self.D_px                   = None # size of the DM in [pixels]
-        self.telescope_D            = None # Telescope diameter in [meters]
+        self.telescope_D            = None # Telescope diamter in [meters]
+        self.telescope_resolution   = None # Telescope diameter in [px] using the original telescope resolution
         self.center                 = None # center coordinates of the DM [pixels]
         self.metapupil              = None # 2D telescope pupil at the DM altitude [circular mask], at 0km equals the pupil without spider nor central obs
         self.pupil                  = None # 2D telescope pupil [binary mask]
@@ -105,13 +106,13 @@ class DeformableMirror:
             validActThreshpercentage : float, optional
                 Parameter to select a percentage of the actuator pitch to consider it valid o not.
             maxStrokePtV : float, optional
-                Maximum mechanical stroke peak-to-valley in [m]. By default 200e-6 [m].
+                Maximum mechanical stroke peak-to-valley in [m]. By default 100e-6 [m].
             dynamicModel : str, optional
                 Path to the h5 file containing the state-space model of the Deformable Mirror.
         """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
-            self.queue_listener = self.setup_logging()
+            self.queue_listerner = self.setup_logging()
             self.logger = logging.getLogger()
             self.external_logger_flag = False
         else:
@@ -128,8 +129,8 @@ class DeformableMirror:
         self.altitude = altitude
         self.nActs = nActs
 
-        if not (0.0 < mechCoupling < 1.0):
-            raise ValueError('The value of mechanical coupling must be strictly between 0 and 1 exclusive.')
+        if mechCoupling <=0:
+            raise ValueError('The value of mechanical coupling should be >= 0.')
         else:
             self.mechCoupling          = mechCoupling
         
@@ -149,7 +150,8 @@ class DeformableMirror:
 
         self.valid_act_thresh_outer = valid_act_thresh_outer
         self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.0) # Dasp uses 0.7533, but the border are not seen well, which inestabilizes the loop.
-        self.maxStrokePtV = kwargs.get('maxStrokePtV', 200e-6) # [m]
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]
+        self.rbfSmoothing = kwargs.get('rbfSmoothing', 0.0) # Tikhonov regularization for the RBF interpolant. Stabilizes edge actuators (e.g. 1e-3).
         self.dynamic_model_path = kwargs.get('dynamicModel', '')
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -161,22 +163,10 @@ class DeformableMirror:
         elif typeDM == 'radial':
             self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm()
         elif typeDM == 'custom':
-            if coordinates is None:
-                self.logger.error("DeformableMirror::__init__ - 'coordinates' argument must be provided when typeDM='custom'.")
-                raise ValueError("Custom DM requires 'coordinates' to be passed.")
-                
-            self.coordinates = np.asarray(coordinates, dtype=float)
-            
-            # Mask the valid actuators within the bounds
-            r = np.sqrt(self.coordinates[:,0]**2 + self.coordinates[:,1]**2)
-            if self.valid_act_thresh_outer is None:
-                self.valid_act_thresh_outer = self.dm_layer.D_fov/2 + self.validActThreshpercentage*self.pitch
-            
-            validAct = r <= self.valid_act_thresh_outer
-            self.validAct = validAct.flatten()
-            self.nValidAct = np.sum(validAct)
+            self.logger.warning('DeformableMirror::__init__ - Custon DM is not yet supported in this new version, using default.')
+            self.typeDM = 'cartesian'
         else:
-            self.logger.error('DeformableMirror::__init__ - Unrecognized DM type. Implemented are: [cartesian, radial, custom]')
+            self.logger.error('DeformableMirror::__init__ - Unrecognized DM type, using default. Implemented are: [cartesian, radial, custom]')
             raise ValueError('Unrecognized DM type, using default.')
         
         # Compute scaling for the RBF Interpolation based on Gaussian function
@@ -187,17 +177,8 @@ class DeformableMirror:
         X, Y = np.meshgrid(x,x)
 
         self.high_res_coords = np.array([X.flatten(), Y.flatten()]).T
-        # Use explicit Modes if supplied, otherwise compute internal RBF interpolator matrix
-        if modes is not None:
-            # Modes explicitly passed, representing custom influence functions
-            custom_modes = torch.as_tensor(modes, device=self.device, dtype=torch.float64)
-            # Ensure shape is [N_pixels, N_valid_acts]
-            if custom_modes.shape[0] != self.dm_layer.D_px**2 or custom_modes.shape[1] != self.nValidAct:
-                self.logger.error(f"DeformableMirror::__init__ - Custom 'modes' shape must be [{self.dm_layer.D_px**2}, {self.nValidAct}], but got {list(custom_modes.shape)}.")
-                raise ValueError("Mismatch in custom modes dimensions.")
-            self.phi_eval = custom_modes
-        else:
-            self.phi_eval = self.computeInfluenceFunctionMatrix(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
+        # Compute the interpolator for the shape fitting
+        self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
 
         # Load dynamic model, if specified
         if self.dynamic_model_path != '':
@@ -207,12 +188,6 @@ class DeformableMirror:
             self.dyn_B = None
             self.dyn_C = None
             self.dyn_D = None
-
-        # Compute the explicit OOPAO-style global pseudo-inverse projector for automatic open-loop Phase fitting.
-        # To avoid introducing excesive edge effect, we mask the region of the influence functions that are outside 
-        # of the metapupil (or pupil, depending on the conjugation).
-        pupil_mask_1d = torch.as_tensor(self.dm_layer.metapupil.flatten(), device=self.device, dtype=torch.float64).unsqueeze(1)
-        self.projector = torch.linalg.pinv(self.phi_eval * pupil_mask_1d)
     
     # Generation of the cartesian coordinates and mask of valid actuators using the outer pupil limit
     
@@ -303,12 +278,13 @@ class DeformableMirror:
 
         return coordinates, validAct.flatten(), nValidAct
 
-    # Generates a direct Gaussian Influence Function matrix for superposition mapping
+    # Generates a Gaussian RBF Interpolant to compute the high resolution function imposing the mirror mechanics
 
-    def computeInfluenceFunctionMatrix(self, input_points, output_points, epsilon):
+    def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
         """
-        Precomputes the influence function matrix for the forward model superposition.
-        The layout assumes a set of radial or cartesian points bounded within the pupil.
+        Generates a distribution of radial points approximated by haxagons, 
+        and a logic mask filtering the points that are within the limits of
+        the external pupil diameter.
 
         Parameters
         ----------
@@ -318,21 +294,34 @@ class DeformableMirror:
             Coordinates of the high resolution output grid
         epsilon : float
             Radial scaling factor for the Gaussian fitting
+        smoothing : 
 
         Returns
         -------
+        L : torch.Tensor
+            Triangular Cholesky descomposition matrix
         phi_eval : torch.Tensor
-            Direct Influence Function Matrix based on output - input Euclidean distance
+            Inteprolator based on output - input Euclidean distance
         """
 
         input_points_torch  = torch.as_tensor(input_points,  device=self.device, dtype=torch.float64)
         output_points_torch = torch.as_tensor(output_points, device=self.device, dtype=torch.float64)
 
+        eucl_distance = torch.cdist(input_points_torch, input_points_torch) 
+        Phi = torch.exp(-(epsilon * eucl_distance) ** 2)
+
+        # Tikhonov regularization: Phi_reg = Phi + alpha * I
+        # Prevents Runge-like oscillations at edge actuators by relaxing exact interpolation.
+        if self.rbfSmoothing > 0.0:
+            Phi = Phi + self.rbfSmoothing * torch.eye(Phi.shape[0], device=self.device, dtype=torch.float64)
+
+        L = torch.linalg.cholesky(Phi)
+
         D_eval = torch.cdist(output_points_torch, input_points_torch)
 
         phi_eval = torch.exp(-(epsilon * D_eval) ** 2)
 
-        return phi_eval
+        return L, phi_eval
 
     # The DM can be considered as an atmospheric layers with discrete points actuated, which are then connected with their influence functions, 
     # shaping a continuous 2D surface. 
@@ -493,9 +482,8 @@ class DeformableMirror:
         """
         self.logger.debug('DeformableMirror::saturateShape') 
 
-        # The maximum Peak-to-Valley limits the surface excursion tightly
-        boundary = self.maxStrokePtV / 2.0
-        cmd_saturated = np.clip(cmd, a_min=-boundary, a_max=boundary)
+        # The OPD is treated in the mulator as wavefront --> the PtV maximum is equivalent to the wavefront value
+        cmd_saturated = np.clip(cmd, a_min=-self.maxStrokePtV, a_max=self.maxStrokePtV)
         return cmd_saturated
     
     def load_dynamic_model(self, filename, samplingTime):
@@ -593,13 +581,8 @@ class DeformableMirror:
 
         if isinstance(val, torch.Tensor):
             if val.squeeze().ndim > 1:
-                # Feature: Automatically project 2D Target Phase maps (Open Loop target fitting) into appropriate commands!
-                if val.shape[0] == self.dm_layer.D_px and val.shape[1] == self.dm_layer.D_px:
-                    val = self.projector @ val.flatten().to(dtype=torch.float64, device=self.device)
-                else:
-                    self.logger.error(f'DeformableMirror::updateDMShape - 2D Phase Shape not supported. Expected {[self.dm_layer.D_px, self.dm_layer.D_px]}, got {list(val.shape)}.')                
-                    raise ValueError('Shape of the command/phase is not supported.')
-                    
+                self.logger.error(f'DeformableMirror::updateDMShape - Shape of the command is not supported. Expected 1D array.')                
+                raise ValueError('Shape of the command is not supported. Expected 1D array.')
             if val.shape[0] == self.validAct.shape[0]:
                 # Command received is 1D, without filtering the unused actuators
                 val = val[self.validAct]
@@ -621,13 +604,15 @@ class DeformableMirror:
         
         self.dm_layer.cmd_1D = temp.copy()
 
-        # Compute the shape of the mirror using direct Influence Function superposition and applying dynamics, if specified
+        # Compute the shape of the mirror using the RBF interpolator and aplying the dynamics, if specified
         if (self.dyn_A is not None) and (dynamicResponse is True):
             coefs_torch = self.applyDynamics(val)
         else:
             coefs_torch           = val
 
-        opd_highres = (self.phi_eval @ coefs_torch).squeeze(1)
+        W = torch.cholesky_solve(coefs_torch, self.L_interp)
+
+        opd_highres = (self.phi_eval @ W).squeeze(1)
 
         self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
@@ -666,15 +651,9 @@ class DeformableMirror:
     def setup_logging(self, logging_level=logging.WARNING):
         #
         #  Setup of logging at the main process using QueueHandler
-        root_logger = logging.getLogger()
-        
-        # Prevent queue listener duplication across multiple DM instances
-        has_queue_handler = any(isinstance(h, logging.handlers.QueueHandler) for h in root_logger.handlers)
-        if has_queue_handler:
-            return None
-
         log_queue = Queue()
         queue_handler = logging.handlers.QueueHandler(log_queue)
+        root_logger = logging.getLogger()
         root_logger.setLevel(logging_level)  # Minimum log level
 
         # Setup of the formatting
@@ -697,5 +676,5 @@ class DeformableMirror:
     # If the logger is external, then the queue is stop outside of the class scope and we shall
     # avoid to attempt its destruction
     def __del__(self):
-        if not self.external_logger_flag and hasattr(self, 'queue_listener') and self.queue_listener is not None:
-            self.queue_listener.stop()
+        if not self.external_logger_flag:
+            self.queue_listerner.stop()
