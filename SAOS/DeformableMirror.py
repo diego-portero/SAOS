@@ -196,9 +196,8 @@ class DeformableMirror:
                 self.logger.error(f"DeformableMirror::__init__ - Custom 'modes' shape must be [{self.dm_layer.D_px**2}, {self.nValidAct}], but got {list(custom_modes.shape)}.")
                 raise ValueError("Mismatch in custom modes dimensions.")
             self.phi_eval = custom_modes
-            self.L_interp = None
         else:
-            self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
+            self.phi_eval = self.computeInfluenceFunctionMatrix(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
 
         # Load dynamic model, if specified
         if self.dynamic_model_path != '':
@@ -304,12 +303,12 @@ class DeformableMirror:
 
         return coordinates, validAct.flatten(), nValidAct
 
-    # Generates a Gaussian RBF Interpolant to compute the high resolution function imposing the mirror mechanics
+    # Generates a direct Gaussian Influence Function matrix for superposition mapping
 
-    def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
+    def computeInfluenceFunctionMatrix(self, input_points, output_points, epsilon):
         """
-        Precomputes the influence function matrix and geometric Cholesky decomposition 
-        for exact interpolation of analytical RBF distributions.
+        Precomputes the influence function matrix for the forward model superposition.
+        The layout assumes a set of radial or cartesian points bounded within the pupil.
 
         Parameters
         ----------
@@ -322,24 +321,18 @@ class DeformableMirror:
 
         Returns
         -------
-        L : torch.Tensor
-            Triangular Cholesky decomposition matrix
         phi_eval : torch.Tensor
-            Interpolator based on output - input Euclidean distance
+            Direct Influence Function Matrix based on output - input Euclidean distance
         """
+
         input_points_torch  = torch.as_tensor(input_points,  device=self.device, dtype=torch.float64)
         output_points_torch = torch.as_tensor(output_points, device=self.device, dtype=torch.float64)
-
-        eucl_distance = torch.cdist(input_points_torch, input_points_torch) 
-        Phi = torch.exp(-(epsilon * eucl_distance) ** 2)
-
-        L = torch.linalg.cholesky(Phi)
 
         D_eval = torch.cdist(output_points_torch, input_points_torch)
 
         phi_eval = torch.exp(-(epsilon * D_eval) ** 2)
 
-        return L, phi_eval
+        return phi_eval
 
     # The DM can be considered as an atmospheric layers with discrete points actuated, which are then connected with their influence functions, 
     # shaping a continuous 2D surface. 
@@ -628,19 +621,13 @@ class DeformableMirror:
         
         self.dm_layer.cmd_1D = temp.copy()
 
-        # Compute the shape of the mirror
+        # Compute the shape of the mirror using direct Influence Function superposition and applying dynamics, if specified
         if (self.dyn_A is not None) and (dynamicResponse is True):
             coefs_torch = self.applyDynamics(val)
         else:
             coefs_torch           = val
 
-        # If a Cholesky interpolant was precalculated (native Gaussian RBF), solve for the exact weights to hit the commanded heights
-        if getattr(self, 'L_interp', None) is not None:
-            W = torch.cholesky_solve(coefs_torch, self.L_interp)
-        else:
-            W = coefs_torch
-
-        opd_highres = (self.phi_eval @ W).squeeze(1)
+        opd_highres = (self.phi_eval @ coefs_torch).squeeze(1)
 
         self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
