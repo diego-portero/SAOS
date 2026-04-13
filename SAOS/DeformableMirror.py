@@ -180,8 +180,8 @@ class DeformableMirror:
         else:
             self.projector = torch.linalg.pinv()
 
-        # Precompute desired OPD approximation
-        self.idx_hr = self.precomputeDesiredOPD(self.coordinates[self.validAct], self.high_res_coords)
+        # Precompute desired OPD approximation using linear interpolation
+        self.interp_matrix = self.precomputeDesiredOPD(self.coordinates[self.validAct], self.high_res_coords)
 
         # Load dynamic model, if specified
         if self.dynamic_model_path != '':
@@ -485,20 +485,62 @@ class DeformableMirror:
         cmd_saturated = np.clip(cmd, a_min=-self.maxStrokePtV/2, a_max=self.maxStrokePtV/2)
         return cmd_saturated
     
-    # Precompute distances for high resolution approximation
+    # Precompute distances for high resolution approximation using Delaunay linear interpolation
     def precomputeDesiredOPD(self, act_coords, opd_coords):
+        import scipy.spatial as spatial
+        import scipy.sparse as sparse
 
-        act_coords_torch = torch.as_tensor(act_coords, device=self.device, dtype=torch.float64)
-        opd_coords_torch = torch.as_tensor(opd_coords, device=self.device, dtype=torch.float64)
+        tri = spatial.Delaunay(act_coords)
+        simps = tri.find_simplex(opd_coords)
 
-        dist = torch.cdist(opd_coords_torch, act_coords_torch)
-        idx = torch.argmin(dist, dim=1)
+        out_mask = (simps == -1)
+        in_mask = ~out_mask
         
-        return idx
+        b = tri.transform[simps[in_mask], :2]
+        c = tri.transform[simps[in_mask], 2]
+        pts = opd_coords[in_mask] - c
+        
+        bary_coords = np.empty((pts.shape[0], 3))
+        bary_coords[:, 0] = b[:, 0, 0] * pts[:, 0] + b[:, 0, 1] * pts[:, 1]
+        bary_coords[:, 1] = b[:, 1, 0] * pts[:, 0] + b[:, 1, 1] * pts[:, 1]
+        bary_coords[:, 2] = 1.0 - bary_coords[:, 0] - bary_coords[:, 1]
+        
+        vertices = tri.simplices[simps[in_mask]]
+        
+        rows = np.repeat(np.nonzero(in_mask)[0], 3)
+        cols = vertices.flatten()
+        data = bary_coords.flatten()
+        
+        # Nearest neighbor for points outside convex hull
+        if np.any(out_mask):
+            tree = spatial.cKDTree(act_coords)
+            _, nearest_idx = tree.query(opd_coords[out_mask])
+            rows_out = np.nonzero(out_mask)[0]
+            cols_out = nearest_idx
+            data_out = np.ones(len(rows_out))
+            
+            rows = np.concatenate([rows, rows_out])
+            cols = np.concatenate([cols, cols_out])
+            data = np.concatenate([data, data_out])
+            
+        interp_matrix = sparse.coo_matrix((data, (rows, cols)), shape=(opd_coords.shape[0], act_coords.shape[0]))
+        
+        indices = np.vstack((interp_matrix.row, interp_matrix.col))
+        interp_matrix_torch = torch.sparse_coo_tensor(
+            torch.tensor(indices, dtype=torch.int64),
+            torch.tensor(interp_matrix.data, dtype=torch.float64),
+            size=interp_matrix.shape,
+            device=self.device
+        ).coalesce()
+        
+        return interp_matrix_torch
     
-    # Computes the desired OPD from the command sent by the controller
-    def get_desired_opd(self, coefs, idx):
-        opd_desired = coefs[idx]
+    # Computes the desired OPD from the command sent by the controller using linear interpolation
+    def get_desired_opd(self, coefs, interp_matrix):
+        if coefs.ndim == 1:
+            coefs = coefs.unsqueeze(1)
+        # Apply sparse matrix multiplication
+        opd_desired = torch.sparse.mm(interp_matrix, coefs.to(dtype=interp_matrix.dtype)).squeeze(1)
         return opd_desired.reshape(self.dm_layer.D_px, self.dm_layer.D_px)
     
     def load_dynamic_model(self, filename, samplingTime):
@@ -620,7 +662,7 @@ class DeformableMirror:
         self.dm_layer.cmd_1D = temp.copy()
 
         # Compute the shape of the mirror, first generating the desired OPD
-        opd_desired = self.get_desired_opd(val, self.idx_hr) * self.dm_layer.metapupil
+        opd_desired = self.get_desired_opd(val, self.interp_matrix) * self.dm_layer.metapupil
         opd_desired = opd_desired.reshape(-1)
 
         # Compute command
