@@ -312,8 +312,13 @@ class DeformableMirror:
         D_eval = torch.cdist(output_points_torch, input_points_torch)
         influenceFunctions = torch.exp(-(epsilon * D_eval) ** 2)
 
+        # Mask the influence functions with the pupil before computing the pseudo-inverse.
+        # This prevents the projector from trying to fit the phase in invisible outer regions.
+        pupil_mask = torch.as_tensor(self.dm_layer.metapupil.flatten(), device=self.device, dtype=torch.float64).unsqueeze(1)
+        influence_masked = influenceFunctions * pupil_mask
+
         # Then, compute the projection matrix
-        projector = torch.linalg.pinv(influenceFunctions, rcond)
+        projector = torch.linalg.pinv(influence_masked, rcond)
 
         return influenceFunctions, projector
 
@@ -625,7 +630,7 @@ class DeformableMirror:
         if (self.dyn_A is not None) and (dynamicResponse is True):
             coefs_torch = self.applyDynamics(coefs_corrected)
         else:
-            coefs_torch = val
+            coefs_torch = coefs_corrected
 
         opd_highres = self.influenceFunctions@coefs_torch
 
