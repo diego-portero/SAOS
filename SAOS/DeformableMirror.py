@@ -479,6 +479,30 @@ class DeformableMirror:
         # The OPD is treated in the mulator as wavefront --> the PtV maximum is equivalent to the wavefront value
         cmd_saturated = np.clip(cmd, a_min=-self.maxStrokePtV, a_max=self.maxStrokePtV)
         return cmd_saturated
+
+    def getApproximateSurface(self, coefs):
+        """
+        Interplote 1D command coefficients to build an approximate 2D surface over the dense matrix.
+        Relies on scipy griddata (linear inside the convex hull, nearest neighbour outside).
+        """
+        from scipy.interpolate import griddata
+
+        if isinstance(coefs, torch.Tensor):
+            coefs = coefs.detach().cpu().numpy().flatten()
+        else:
+            coefs = np.asarray(coefs).flatten()
+
+        act_coords = self.coordinates[self.validAct]
+        
+        # Interpolate inside the convex hull
+        approx_surface = griddata(act_coords, coefs, self.high_res_coords, method='linear')
+
+        # Fallback to nearest neighbor interpolation to extrapolate missing values (outside outer ring)
+        nan_mask = np.isnan(approx_surface)
+        if np.any(nan_mask):
+            approx_surface[nan_mask] = griddata(act_coords, coefs, self.high_res_coords[nan_mask], method='nearest')
+
+        return approx_surface.reshape(self.dm_layer.D_px, self.dm_layer.D_px)
     
     def load_dynamic_model(self, filename, samplingTime):
         """
