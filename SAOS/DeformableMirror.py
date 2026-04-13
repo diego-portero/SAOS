@@ -500,7 +500,7 @@ class DeformableMirror:
         # Fallback to nearest neighbor interpolation to extrapolate missing values (outside outer ring)
         nan_mask = np.isnan(approx_surface)
         if np.any(nan_mask):
-            approx_surface[nan_mask] = griddata(act_coords, coefs, self.high_res_coords[nan_mask], method='nearest')
+            approx_surface[nan_mask] = 0.0
 
         return approx_surface.reshape(self.dm_layer.D_px, self.dm_layer.D_px)
     
@@ -627,6 +627,8 @@ class DeformableMirror:
             coefs_torch = self.applyDynamics(val)
         else:
             coefs_torch           = val
+
+        self.getApproximateSurface(coefs_torch)
 
         W = torch.cholesky_solve(coefs_torch, self.L_interp)
 
