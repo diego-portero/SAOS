@@ -52,9 +52,9 @@ class DeformableMirror:
                  telescope,
                  nActs:float,
                  mechCoupling:float = 0.60,
-                 coordinates:np.ndarray = None,
                  pitch:float = None,
-                 modes:np.ndarray = None,
+                 coordinates:torch.Tensor = None,
+                 influenceFunctions:torch.Tensor = None,
                  misReg = None,
                  typeDM:str = 'cartesian',
                  floating_precision:int = 64,
@@ -149,8 +149,9 @@ class DeformableMirror:
             self.misReg=misReg            
 
         self.valid_act_thresh_outer = valid_act_thresh_outer
-        self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.0) # Dasp uses 0.7533, but the border are not seen well, which inestabilizes the loop.
-        self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]
+        self.validActThreshpercentage = kwargs.get('validActThreshpercentage', 0.5) # Dasp uses 0.7533, so does OOPAO
+        self.maxStrokePtV = kwargs.get('maxStrokePtV', 200e-6) # [m]
+        self.projectorFilter = kwargs.get('projectorFilter', 0.025) # % of max(SV)
         self.dynamic_model_path = kwargs.get('dynamicModel', '')
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -168,7 +169,7 @@ class DeformableMirror:
             self.logger.error('DeformableMirror::__init__ - Unrecognized DM type, using default. Implemented are: [cartesian, radial, custom]')
             raise ValueError('Unrecognized DM type, using default.')
         
-        # Compute scaling for the RBF Interpolation based on Gaussian function
+        # Compute scaling for the Gaussian influence functions
         self.epsilon = np.sqrt(-1*np.log(self.mechCoupling))/self.pitch
 
         # High resolution meshgrid
@@ -176,8 +177,18 @@ class DeformableMirror:
         X, Y = np.meshgrid(x,x)
 
         self.high_res_coords = np.array([X.flatten(), Y.flatten()]).T
-        # Compute the interpolator for the shape fitting
-        self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
+
+        # Generate the mirror IFs
+        if typeDM != 'custom':
+            # Gaussian IFs
+            self.influenceFunctions, self.projector = self.generateIF(self.coordinates[self.validAct], self.high_res_coords, self.epsilon, self.projectorFilter)
+        else:
+            self.coordinates = coordinates
+            self.influenceFunctions = influenceFunctions
+            # Check the dims of the influence functions
+            if self.influenceFunctions.shape[0] != self.dm_layer.D_px**2:
+                self.logger.error(f'DeformableMirror::__init__ - Custom influence function sampling must match the resolution of the simulation: {self.dm_layer.D_px}x{self.dm_layer.D_px} points' )
+            self.projector = torch.linalg.pinv(self.influenceFunctions, rcond=self.projectorFilter)
 
         # Load dynamic model, if specified
         if self.dynamic_model_path != '':
@@ -277,13 +288,10 @@ class DeformableMirror:
 
         return coordinates, validAct.flatten(), nValidAct
 
-    # Generates a Gaussian RBF Interpolant to compute the high resolution function imposing the mirror mechanics
-
-    def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
+    # Generates Gaussian influence functions and the reconstruction projector
+    def generateIF(self, input_points, output_points, epsilon, rcond=0.025):
         """
-        Generates a distribution of radial points approximated by haxagons, 
-        and a logic mask filtering the points that are within the limits of
-        the external pupil diameter.
+        Generates the set of Gaussian influence functions for the set of coordinates of the actuator distribution
 
         Parameters
         ----------
@@ -293,29 +301,32 @@ class DeformableMirror:
             Coordinates of the high resolution output grid
         epsilon : float
             Radial scaling factor for the Gaussian fitting
-        smoothing : 
-
+        rcond : float, optional
+            Used for the projector, removes the SV that are below rcond * max(SV)
         Returns
         -------
-        L : torch.Tensor
-            Triangular Cholesky descomposition matrix
-        phi_eval : torch.Tensor
-            Inteprolator based on output - input Euclidean distance
+        influenceFunctions : torch.Tensor
+            DM influence functions of shape nPointsHighRes x nValidAct
+        projector : torch.Tensor
+            Projection matrix to fit the DM shape to a desired phase given the actuator constraints
         """
 
         input_points_torch  = torch.as_tensor(input_points,  device=self.device, dtype=torch.float64)
         output_points_torch = torch.as_tensor(output_points, device=self.device, dtype=torch.float64)
 
-        eucl_distance = torch.cdist(input_points_torch, input_points_torch) 
-        Phi = torch.exp(-(epsilon * eucl_distance) ** 2)
-
-        L = torch.linalg.cholesky(Phi)
-
+        # Compute the distance between actuators in the high resolution space and compute the Gaussian IFs
         D_eval = torch.cdist(output_points_torch, input_points_torch)
+        influenceFunctions = torch.exp(-(epsilon * D_eval) ** 2)
+        
+        # Mask the influence functions with the pupil before computing the pseudo-inverse.
+        # This prevents the projector from trying to fit the phase in invisible outer regions.
+        pupil_mask = torch.as_tensor(self.dm_layer.metapupil.flatten(), device=self.device, dtype=torch.float64).unsqueeze(1)
+        influence_masked = influenceFunctions * pupil_mask
 
-        phi_eval = torch.exp(-(epsilon * D_eval) ** 2)
+        # Then, compute the projection matrix
+        projector = torch.linalg.pinv(influence_masked, rcond)
 
-        return L, phi_eval
+        return influenceFunctions, projector
 
     # The DM can be considered as an atmospheric layers with discrete points actuated, which are then connected with their influence functions, 
     # shaping a continuous 2D surface. 
@@ -622,19 +633,22 @@ class DeformableMirror:
         
         self.dm_layer.cmd_1D = temp.copy()
 
+        # Compute the shape of the mirror, first generating the desired OPD
+        opd_desired_np = self.getApproximateSurface(val) * self.dm_layer.metapupil
+        opd_desired = torch.tensor(opd_desired_np.flatten(), dtype=torch.float64, device=self.device)
+
+        # Compute command
+        coefs_corrected = self.projector @ opd_desired
+
         # Compute the shape of the mirror using the RBF interpolator and aplying the dynamics, if specified
         if (self.dyn_A is not None) and (dynamicResponse is True):
-            coefs_torch = self.applyDynamics(val)
+            coefs_torch = self.applyDynamics(coefs_corrected)
         else:
-            coefs_torch           = val
+            coefs_torch = coefs_corrected
 
-        self.getApproximateSurface(coefs_torch)
+        opd_highres = self.influenceFunctions @ coefs_torch
 
-        W = torch.cholesky_solve(coefs_torch, self.L_interp)
-
-        opd_highres = (self.phi_eval @ W).squeeze(1)
-
-        self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
+        self.dm_layer.OPD = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
         # Saturate the actuation
         self.dm_layer.OPD = self.saturateShape(self.dm_layer.OPD)
