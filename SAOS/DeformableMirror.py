@@ -281,7 +281,7 @@ class DeformableMirror:
 
     def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
         """
-        Generates a distribution of radial points approximated by haxagons, 
+        Generates a distribution of radial points approximated by hexagons, 
         and a logic mask filtering the points that are within the limits of
         the external pupil diameter.
 
@@ -298,24 +298,26 @@ class DeformableMirror:
         Returns
         -------
         L : torch.Tensor
-            Triangular Cholesky descomposition matrix
-        phi_eval : torch.Tensor
-            Inteprolator based on output - input Euclidean distance
+            Triangular Cholesky descomposition matrix of the
+            Influence Functions in the Actuator resolution
+        influenceFunction_opd_res : torch.Tensor
+            Influence Functions in the OPD resolution
         """
 
         input_points_torch  = torch.as_tensor(input_points,  device=self.device, dtype=torch.float64)
         output_points_torch = torch.as_tensor(output_points, device=self.device, dtype=torch.float64)
 
         eucl_distance = torch.cdist(input_points_torch, input_points_torch) 
-        Phi = torch.exp(-(epsilon * eucl_distance) ** 2)
+        influenceFunction_act_res = torch.exp(-(epsilon * eucl_distance) ** 2)
 
-        L = torch.linalg.cholesky(Phi)
+        L = torch.linalg.cholesky(influenceFunction_act_res)
 
         D_eval = torch.cdist(output_points_torch, input_points_torch)
 
-        phi_eval = torch.exp(-(epsilon * D_eval) ** 2)
+        influenceFunction_opd_res = torch.exp(-(epsilon * D_eval) ** 2)
 
-        return L, phi_eval
+        return L, influenceFunction_opd_res
+
 
     # The DM can be considered as an atmospheric layers with discrete points actuated, which are then connected with their influence functions, 
     # shaping a continuous 2D surface. 
