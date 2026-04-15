@@ -177,7 +177,10 @@ class DeformableMirror:
 
         self.high_res_coords = np.array([X.flatten(), Y.flatten()]).T
         # Compute the interpolator for the shape fitting
-        self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
+        self.L_interp, validIFs = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords[self.dm_layer.metapupil.flatten()], self.epsilon)
+
+        self.influenceFunctions = torch.zeros((self.dm_layer.metapupil.flatten().shape[0], self.nValidAct), device=self.device, dtype=torch.float64)
+        self.influenceFunctions[self.dm_layer.metapupil.flatten(),:] = validIFs
 
         # Load dynamic model, if specified
         if self.dynamic_model_path != '':
@@ -279,7 +282,7 @@ class DeformableMirror:
 
     # Generates a Gaussian RBF Interpolant to compute the high resolution function imposing the mirror mechanics
 
-    def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
+    def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon, reg=1e-10):
         """
         Generates a distribution of radial points approximated by hexagons, 
         and a logic mask filtering the points that are within the limits of
@@ -293,7 +296,9 @@ class DeformableMirror:
             Coordinates of the high resolution output grid
         epsilon : float
             Radial scaling factor for the Gaussian fitting
-        smoothing : 
+        reg : float, optional
+            Regularisation value to avoid non-positive matrix
+            when the Cholesky is executed.
 
         Returns
         -------
@@ -310,7 +315,7 @@ class DeformableMirror:
         eucl_distance = torch.cdist(input_points_torch, input_points_torch) 
         influenceFunction_act_res = torch.exp(-(epsilon * eucl_distance) ** 2)
 
-        L = torch.linalg.cholesky(influenceFunction_act_res)
+        L = torch.linalg.cholesky(influenceFunction_act_res + reg * torch.eye(influenceFunction_act_res.shape[0], device=self.device, dtype=torch.float64))
 
         D_eval = torch.cdist(output_points_torch, input_points_torch)
 
@@ -608,7 +613,9 @@ class DeformableMirror:
 
         W = torch.cholesky_solve(coefs_torch, self.L_interp)
 
-        opd_highres = (self.phi_eval @ W).squeeze(1)
+        opd_highres = torch.zeros((self.dm_layer.metapupil.flatten().shape[0]), device=self.device, dtype=torch.float64)
+
+        opd_highres[self.dm_layer.metapupil.flatten()] = (self.influenceFunctions[self.dm_layer.metapupil.flatten(),:] @ W).squeeze(1)
 
         self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
