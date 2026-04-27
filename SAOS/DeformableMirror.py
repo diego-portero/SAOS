@@ -611,6 +611,7 @@ class DeformableMirror:
         else:
             coefs_torch           = val
 
+        self.coefs_applied = coefs_torch.numpy()
         W = torch.cholesky_solve(coefs_torch, self.L_interp)
 
         opd_highres = torch.zeros((self.dm_layer.metapupil.flatten().shape[0]), device=self.device, dtype=torch.float64)
