@@ -45,7 +45,7 @@ class LightPath:
         # the physical displacement of the actuators to take into account the go-and-return path.
 
         # Null buffer
-        null_buffer = np.zeros_like(self.tel.pupil, dtype=np.float32)
+        null_buffer = np.zeros_like(self.tel.pupil, dtype=np.float64)
 
         self.vibration_opd   = null_buffer.copy() # in [m]
         self.vibration_phase = null_buffer.copy() # in [rad]
