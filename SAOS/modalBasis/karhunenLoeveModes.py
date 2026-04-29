@@ -56,11 +56,17 @@ def generate_kl_modes(dm, nModes=None, useTorch=False):
     kl_modes = zernikes_ortho @ U
 
     kl_modes[~dm.validAct,:] = 0.0
+
        
     # Normalize between -1 and 1
     max_values = np.max(np.abs(kl_modes), axis=0, keepdims=True)
     max_values[max_values == 0] = 1
     kl_modes = kl_modes / max_values
+
+    # Sort by variance
+    stds = np.var(kl_modes, axis=0)
+    idx = np.argsort(stds)[::-1]
+    kl_modes = kl_modes[:, idx]    
 
     # Check torch option
     if useTorch:
