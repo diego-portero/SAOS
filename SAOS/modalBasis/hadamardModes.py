@@ -26,7 +26,7 @@ def generate_hadamard_modes(dm, nModes=None, useTorch=False, include_piston=Fals
         if include_piston:
             H_modes[dm.validAct, i] = H[i,:dm.nValidAct]
         else:
-            H_modes[dm.validAct, i] = H[i,:dm.nValidAct]
+            H_modes[dm.validAct, i] = H[i+1,:dm.nValidAct]
 
     
     # Make sure that the modes are orthogonal inside the valid region
