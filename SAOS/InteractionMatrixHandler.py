@@ -177,7 +177,7 @@ class InteractionMatrixHandler:
     # modal_basis_list can be a string or a list of length equal to the number of DMs, enabling the definition of a modal basis for all the DMs or specifying one modal basis for each DM
     # stroke is in [m] and can be a scalar or a list, to let the user set a common stroke for all the DMs or define it per DM.
     # nModes is by default None, which will use all the modes of the DMs. If define, it shall be a list specifying the number of modes per DM
-    def measure(self, modal_basis, stroke, nModes=None, calib_percentage=0.05):
+    def measure(self, modal_basis, stroke, nModes=None):
         """
         Measure interaction matrices for each WFS-DM pair defined in the system.
 
@@ -189,8 +189,6 @@ class InteractionMatrixHandler:
             Stroke amplitude in meters.
         nModes : list or None
             Number of modes per DM, or None to use all.
-        calib_percentage : float, optional
-            Percentage of modes to use for stroke calibration (default is 0.05).
 
         Returns
         -------
@@ -246,7 +244,7 @@ class InteractionMatrixHandler:
             self.generate_modal_basis()
         # Once the input parameters are defined, we proceed to measure the IM
         # Prepare the variable to store the different IMs
-        im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px', 'applied_stroke':None}
+        im_dict = {'modalBasis':None, 'IM':None, 'slopes_units':'px'}
         # nLps x mDms
         self.interaction_matrix_warehouse = [[im_dict.copy() for i in range(self.im_boolean_matrix.shape[0])] for j in range(self.im_boolean_matrix.shape[1])]
         # Prepare the LightPaths to be parallelized
@@ -275,82 +273,19 @@ class InteractionMatrixHandler:
                     tmp_IM_list[-1]['slopes_units'] = 'rad' if self.light_path_list[k].wfs.unit_in_rad else 'px'
                 else:
                     tmp_IM_list.append(im_dict.copy())
-            # Determine the first WFS that has interaction with this DM
-            first_wfs_idx = None
-            for k in range(len(self.light_path_list)):
-                if self.im_boolean_matrix[k, i]:
-                    first_wfs_idx = k
-                    break
-
-            n_total_modes = modes.shape[1]
-            stroke_curve = np.ones(n_total_modes) * self.stroke_per_DM[i]
-
-            if first_wfs_idx is not None and calib_percentage > 0:
-                # Calibration based on calib_percentage
-                n_calib = max(3, int(calib_percentage * n_total_modes))
-                calib_indices = np.linspace(0, n_total_modes - 1, n_calib, dtype=int)
-                calib_displacements = np.zeros(n_calib)
-                
-                safe_px = 2.0  # max px to consider the WFS in linear regime
-                max_calib_iters = 5  # max iterations to find the linear regime
-                
-                self.logger.info(f'InteractionMatrixHandler::measure - Calibrating stroke curve using {n_calib} modes...')
-                for idx, mode_idx in enumerate(calib_indices):
-                    test_stroke = self.stroke_per_DM[i]
-                    
-                    for _ in range(max_calib_iters):
-                        cmd = test_stroke * modes[:, mode_idx]
-                        self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)
-                        Parallel(n_jobs=2, prefer="threads")(tasks)
-                        
-                        max_disp = np.max(np.abs(self.light_path_list[first_wfs_idx].slopes_1D))
-                        
-                        if max_disp <= safe_px:
-                            break
-                        # Scale down to bring into linear regime
-                        test_stroke = test_stroke * (safe_px / max_disp) * 0.8
-                    
-                    # Extrapolate the displacement that base_stroke would produce (linearity)
-                    if test_stroke > 0 and max_disp > 0:
-                        calib_displacements[idx] = max_disp * (self.stroke_per_DM[i] / test_stroke)
-                    else:
-                        calib_displacements[idx] = 0.0
-                
-                self.logger.info(f'InteractionMatrixHandler::measure - Calibration displacements (extrapolated): min={np.min(calib_displacements):.2f}, max={np.max(calib_displacements):.2f}')
-                
-                from scipy.interpolate import interp1d
-                disp_curve = interp1d(calib_indices, calib_displacements, kind='linear', fill_value='extrapolate')(np.arange(n_total_modes))
-                
-                target_disp = calib_displacements[0]
-                if target_disp <= 0:
-                    target_disp = np.median(calib_displacements[calib_displacements > 0]) if np.any(calib_displacements > 0) else 1.0
-                
-                disp_curve = np.clip(disp_curve, 1e-12, None)
-                stroke_curve = self.stroke_per_DM[i] * (target_disp / disp_curve)
-                
-                # Assign the stroke curve to the warehouse metadata
-                for k in range(len(self.light_path_list)):
-                    if self.im_boolean_matrix[k, i]:
-                        tmp_IM_list[k]['applied_stroke'] = stroke_curve.copy()
-                        
-                # Make it available to the user as an attribute (useful when there's a single DM)
-                self.stroke_curve = stroke_curve
-
             # Now, loop over each mode to measure the interaction matrix
-            self.logger.info(f'InteractionMatrixHandler::measure - Calibration ended, measuring IM.')
-            for j in range(n_total_modes):
+            for j in range(modes.shape[1]):
                 if (j % 50) == 0:
-                    self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {n_total_modes}')
+                    self.logger.info(f'InteractionMatrixHandler::measure - Mode {j} out of {modes.shape[1]}')
                 # Apply the modal command to the DM
-                current_stroke = stroke_curve[j]
-                cmd = current_stroke * modes[:,j]
+                cmd = self.stroke_per_DM[i] * modes[:,j]
                 self.dm_scanned_list[i].updateDMShape(torch.as_tensor(cmd, dtype=torch.float64, device=self.device).unsqueeze(1), dynamicResponse=False)
                 # Propagate
                 Parallel(n_jobs=2, prefer="threads")(tasks)
                 # Measure the WFS slopes at the Light Path affected
                 for k in range(len(self.light_path_list)):
                     if self.im_boolean_matrix[k, i]:
-                        tmp_IM_list[k]['IM'][:, j] = self.light_path_list[k].slopes_1D / current_stroke
+                        tmp_IM_list[k]['IM'][:, j] = self.light_path_list[k].slopes_1D / self.stroke_per_DM[i]
 
             self.interaction_matrix_warehouse[i] = tmp_IM_list.copy()
             # Make sure that the DM is set to zero before commanding the next one
@@ -363,12 +298,7 @@ class InteractionMatrixHandler:
         for i in range(self.max_displacement.shape[0]):
             for j in range(self.max_displacement.shape[1]):
                 if self.interaction_matrix_warehouse[i][j]['IM'] is not None:
-                    applied_strokes = self.interaction_matrix_warehouse[i][j].get('applied_stroke')
-                    if applied_strokes is not None:
-                        actual_displacements = np.abs(self.interaction_matrix_warehouse[i][j]['IM']) * applied_strokes
-                        self.max_displacement[i, j] = np.max(actual_displacements)
-                    else:
-                        self.max_displacement[i, j] = np.max(np.abs(self.interaction_matrix_warehouse[i][j]['IM'])) * self.stroke_per_DM[i]
+                    self.max_displacement[i, j] = np.max(np.abs(self.interaction_matrix_warehouse[i][j]['IM'])) * self.stroke_per_DM[i]
 
         self.logger.info(f'Max. displacement info: DM x LP: {self.max_displacement}')
         return True
@@ -426,8 +356,6 @@ class InteractionMatrixHandler:
                             im_subgroup.attrs['maxDisplacement']   = self.max_displacement[j, i]
                             # Append IM
                             im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[j][i]['IM'])
-                            if self.interaction_matrix_warehouse[j][i].get('applied_stroke') is not None:
-                                im_subgroup.create_dataset('applied_stroke', data=self.interaction_matrix_warehouse[j][i]['applied_stroke'])
                         
         self.logger.info('InteractionMatrixHandler::save_IM - Saved.')
     
@@ -529,8 +457,6 @@ class InteractionMatrixHandler:
                                     # Store the IM
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
-                                    if 'applied_stroke' in f[lp_match_key]['IM' + str(j)]:
-                                        self.interaction_matrix_warehouse[dm_match_idx][i]['applied_stroke'] = np.array(f[lp_match_key]['IM' + str(j)]['applied_stroke'])
 
                                     self.max_displacement[j, i] = f[lp_match_key]['IM' + str(j)].attrs['maxDisplacement']
 
