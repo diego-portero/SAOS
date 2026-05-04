@@ -285,7 +285,7 @@ class InteractionMatrixHandler:
             n_total_modes = modes.shape[1]
             stroke_curve = np.ones(n_total_modes) * self.stroke_per_DM[i]
 
-            if first_wfs_idx is not None:
+            if first_wfs_idx is not None and calib_percentage > 0:
                 # Calibration based on calib_percentage
                 n_calib = max(3, int(calib_percentage * n_total_modes))
                 calib_indices = np.linspace(0, n_total_modes - 1, n_calib, dtype=int)
