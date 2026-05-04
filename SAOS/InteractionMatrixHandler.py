@@ -258,9 +258,11 @@ class InteractionMatrixHandler:
             # Get the modal basis
             modes = self.modal_basis[i][modal_basis_per_DM[i]][:, :nModes_per_DM[i]]
             # Check if the DM is at ground layer or altitude to discard TT
-            if self.dm_scanned_list[i].altitude > 0:
-                self.logger.warning('InteractionMatrixHandler::measure - Be advised that TT is discarded in altitude DMs, the number of modes specified is reduced by 2.')
+            discarded_modes = 0
+            if self.dm_scanned_list[i].altitude > 0 and modal_basis_per_DM[i] in ['zernike', 'dh']:
+                self.logger.warning(f'InteractionMatrixHandler::measure - Be advised that TT is discarded in altitude DMs for basis {modal_basis_per_DM[i]}, the number of modes specified is reduced by 2.')
                 modes = modes[:,2:]
+                discarded_modes = 2
             # Initialize the IMs that will be measured
             tmp_IM_list = []
                 
@@ -269,6 +271,7 @@ class InteractionMatrixHandler:
                     tmp_IM_list.append(im_dict.copy())
                     # Fill the metadata of the matrix
                     tmp_IM_list[-1]['modalBasis'] = modal_basis_per_DM[i]
+                    tmp_IM_list[-1]['discarded_modes'] = discarded_modes
                     tmp_IM_list[-1]['IM'] = np.zeros((self.light_path_list[k].wfs.nSignal, modes.shape[1]))
                     tmp_IM_list[-1]['slopes_units'] = 'rad' if self.light_path_list[k].wfs.unit_in_rad else 'px'
                 else:
@@ -354,6 +357,7 @@ class InteractionMatrixHandler:
                             im_subgroup.attrs['mechCoupling']      = self.dm_scanned_list[j].mechCoupling
                             im_subgroup.attrs['modalBasis']        = self.interaction_matrix_warehouse[j][i]['modalBasis']
                             im_subgroup.attrs['maxDisplacement']   = self.max_displacement[j, i]
+                            im_subgroup.attrs['discarded_modes']   = self.interaction_matrix_warehouse[j][i].get('discarded_modes', 0)
                             # Append IM
                             im_subgroup.create_dataset('data', data=self.interaction_matrix_warehouse[j][i]['IM'])
                         
@@ -456,6 +460,7 @@ class InteractionMatrixHandler:
                                     dm_match_idx = k
                                     # Store the IM
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['modalBasis'] = f[lp_match_key]['IM' + str(j)].attrs['modalBasis']
+                                    self.interaction_matrix_warehouse[dm_match_idx][i]['discarded_modes'] = f[lp_match_key]['IM' + str(j)].attrs.get('discarded_modes', 0)
                                     self.interaction_matrix_warehouse[dm_match_idx][i]['IM'] = np.array(f[lp_match_key]['IM' + str(j)]['data'])
 
                                     self.max_displacement[j, i] = f[lp_match_key]['IM' + str(j)].attrs['maxDisplacement']
