@@ -38,7 +38,7 @@ nIterations = 3000
 
 scienceFs = 56. # Hz
 
-generate_new_atm = False
+generate_new_atm = True
 measure_new_IM = False
 load_modal_basis = True
 
@@ -46,7 +46,7 @@ nModes = None # [nModesASM, nModesM7]
 im_stroke = [5e-7] # in meters
 
 # Loading files:
-load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/ps_scaoExample_r8cm.h5')
+load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/ps_scaoExample_r15cm.h5')
 load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/modalBasis_scaoExample.h5')
 load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/IM_scaoExample.h5')
 
@@ -84,7 +84,7 @@ est_tel = Telescope(diameter = diameter,
 
 ## Atmosphere:
 
-atm = Atmosphere(r0 = 0.08,
+atm = Atmosphere(r0 = 0.21,
                  L0= 25,
                  fractionalR0=[0.53, 0.37, 0.05, 0.03, 0.02],
                  altitude=[100, 1500, 5000, 10000, 15000],
@@ -104,15 +104,7 @@ else:
 ngs_red = Source(magnitude = 5,
              optBand = 'R4',
              coordinates=[0,0],
-             logger=test_logger.logger)  
-
-sun_red = ExtendedSource(optBand = 'R',
-                     coordinates=[0, 0],
-                     nSubDirs=3,
-                     fov=9.269,
-                     subDir_margin=4.0,
-                     patch_padding=5.0,
-                     logger=test_logger.logger)       
+             logger=test_logger.logger)       
 
 ## Deformable mirrors:
 
@@ -126,21 +118,21 @@ asm = DeformableMirror(telescope=est_tel,
                         logger=test_logger.logger,
                         **asm_params) # ASM
 
-dms = [asm]          
+dms = [asm]
 
 ## Wavefront Sensor
 
-red_wfs = CorrelatingShackHartmann(telescope=est_tel,
-                                    src=sun_red,
-                                    lightRatio=0.9,
-                                    nSubap=n_subaperture_red,
-                                    plate_scale=0.403,
-                                    fieldOfView=9.269,
-                                    guardPx=2,
-                                    fft_fieldOfView_oversampling=0.5,
-                                    use_brightest=9,
-                                    unit_in_rad=False,
-                                    logger=test_logger.logger)
+red_wfs_p = ShackHartmann(telescope=est_tel,
+                          src=ngs_red,
+                          lightRatio=0.9,
+                          nSubap=n_subaperture_red,
+                          plate_scale=0.403,
+                          fieldOfView=9.269,
+                          guardPx=2,
+                          fft_fieldOfView_oversampling=0.5,
+                          use_brightest=50,
+                          unit_in_rad=False,
+                          logger=test_logger.logger)
 
 ## Science camera
 
@@ -158,21 +150,10 @@ scao_light_path_list = []
 
 # Create red branch
 scao_light_path_list.append(LightPath(test_logger.logger))
-scao_light_path_list[-1].initialize_path(src=sun_red, 
-                                         atm=atm, 
-                                         tel=est_tel, 
-                                         dm=dms[0], 
-                                         wfs=red_wfs, 
-                                         vibration=None, 
-                                         sci=None, 
-                                         delay=1)
-
-scao_light_path_list.append(LightPath(test_logger.logger))
 scao_light_path_list[-1].initialize_path(src=ngs_red, 
-                                         atm=atm, 
-                                         tel=est_tel, 
+                                         atm=atm, tel=est_tel, 
                                          dm=dms[0], 
-                                         wfs=None, 
+                                         wfs=red_wfs_p, 
                                          vibration=None, 
                                          sci=red_scicam, 
                                          delay=1)
@@ -220,21 +201,21 @@ test_logger.logger.info('Beginning simulation')
 
 # SCAO loop
 for i in range(nIterations):
-    if ((i+1)%10) == 0:
+    if ((i+1)%100) == 0:
         est_tel.logger.info(f'Iteration {i+1}')
-        if scao_light_path_list[1].sci_frame is not None:
-            test_logger.logger.info(f'PSF peak: {scao_light_path_list[1].sci_frame.max()}')
+        if scao_light_path_list[0].sci_frame is not None:
+            test_logger.logger.info(f'PSF peak: {scao_light_path_list[0].sci_frame.max()}')
     # Update the atmosphere
     atm.update()
     # Propagate the light
-    Parallel(n_jobs=2, prefer="threads")(lightPathTasks)
+    Parallel(n_jobs=1, prefer="threads")(lightPathTasks)
     # Compute command
     cmd = controller.computeControlAction(scao_light_path_list)
     # Update the DM shape
     for j in range(len(dms)):
         dms[j].updateDMShape(cmd[j])
     # Share data with the GUI
-    # sharepoint.shareData(scao_light_path_list, i, [atm], dms)              
+    sharepoint.shareData(scao_light_path_list, i, [atm], dms)              
  
     # Save Data
     savepoint.save([atm], i)
