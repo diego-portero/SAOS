@@ -38,16 +38,16 @@ nIterations = 1000
 scienceFs = 56. # Hz
 
 generate_new_atm = False
-measure_new_IM = False
-load_modal_basis = True
+measure_new_IM = True
+load_modal_basis = False
 
 nModes = None # [nModesASM, nModesM7]
-im_stroke = [5e-7, 12e-7, 6.7e-7] # in meters
+im_stroke = [5e-7] # in meters
 
 # Loading files:
-load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/mcaoSun.h5')
-load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/mcaoSun.h5')
-load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/mcaoSun.h5')
+load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/glaoSun.h5')
+load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/glaoSun.h5')
+load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/glaoSun.h5')
 
 # Saving files
 date = datetime.datetime.now().strftime("%Y%m%d_%H%M")
@@ -130,7 +130,7 @@ ext_sci_ngs_30 = Source(magnitude=5, optBand='R4', coordinates=[30,0], logger=te
 
 ## Deformable mirrors:
 
-asm_params = {'dynamicModel': '', 'validActThreshpercentage': 0.7533}
+asm_params = {'dynamicModel': '', 'validActThreshpercentage': 0.5}
 
 asm = DeformableMirror(telescope=est_tel,
                         nActs=n_subaperture_red+1,
@@ -152,7 +152,7 @@ m6 = DeformableMirror(telescope=est_tel,
                         typeDM='cartesian',
                         logger=test_logger.logger) # M6
 
-dms = [asm, m3, m6]
+dms = [asm]
 
 ## Vibration
 
@@ -172,7 +172,7 @@ red_wfs = CorrelatingShackHartmann(telescope=est_tel,
                                     fieldOfView=9.269,
                                     guardPx=2,
                                     fft_fieldOfView_oversampling=0.5,
-                                    use_brightest=9,
+                                    use_brightest=5,
                                     unit_in_rad=False,
                                     logger=test_logger.logger)
 
@@ -239,9 +239,9 @@ test_logger.logger.info(f'The IM creation took {time.time()-t0} [s]')
 # Controller class
 controller_kwargs = {'rcond':0.025, 
                     'beta':1e-4,
-                    'gain':[0.15, 0.1, 0.1],
-                    'decay':[0.0, 0.0, 0.0],
-                    'ki':[0.0,0.0, 0.0]}
+                    'gain':[0.25],
+                    'decay':[0.999],
+                    'ki':[0.0]}
 
 controller = Controller(telescope=est_tel,
                         interactionMatrix=im_handler,

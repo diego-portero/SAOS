@@ -95,10 +95,11 @@ def disk_harmonic_mode(m ,n ,r, theta):
     
     # Compute the radial eigenvalue knm (root of Bessel function derivative)
     mu = abs(m)
-    knm = sp.jn_zeros(mu, n)[-1]  # Approximate root using Bessel function zeros
+    q = (n-mu) // 2 if mu == 0 else (n-mu) //2 + 1 
+    knm = sp.jnp_zeros(mu, q)[-1]  # Root of Bessel function derivative
     
-    # Compute normalization factor anm
-    anm_den = np.sqrt((1 - (m/knm)**2) * (sp.jv(m, knm)**2))
+    # Compute normalization factor anm (Milton & Lloyd-Hart, 2005)
+    anm_den = np.sqrt(0.5 * (1 - (m/knm)**2) * (sp.jv(m, knm)**2))
     if anm_den == 0:
         anm = 1
     else:

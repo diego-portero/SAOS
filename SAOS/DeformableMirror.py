@@ -281,7 +281,7 @@ class DeformableMirror:
 
     def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
         """
-        Generates a distribution of radial points approximated by haxagons, 
+        Generates a distribution of radial points approximated by hexagons, 
         and a logic mask filtering the points that are within the limits of
         the external pupil diameter.
 
@@ -293,8 +293,6 @@ class DeformableMirror:
             Coordinates of the high resolution output grid
         epsilon : float
             Radial scaling factor for the Gaussian fitting
-        smoothing : 
-
         Returns
         -------
         L : torch.Tensor
