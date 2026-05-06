@@ -19,7 +19,7 @@ import os
 from joblib import Parallel, delayed
 
 import numpy as np
-import math
+
 import torch
 
 # Self dependencies
@@ -135,13 +135,11 @@ class Atmosphere:
 
     def initializeAtmosphere(self, randomState=None):
         """
-        Initialize the atmosphere layers and associate them with a telescope.
+        Initialize the atmosphere layers using the telescope linked at construction time.
 
         Parameters
         ----------
-        telescope : Telescope or None
-            Telescope object to derive spatial and temporal resolution.
-        randomState : int or None
+        randomState : int or None, optional
             Seed for reproducible random number generation, by default None.
 
         Returns

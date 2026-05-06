@@ -93,14 +93,12 @@ class NCPA:
     
     def getPhase(self):
         """
-        Returns the NCPA OPD.
+        Return the current NCPA OPD.
 
-        Parameters
-        ----------
         Returns
         -------
         np.ndarray
-            NCPA OPD [m]
+            NCPA OPD in meters [m].
         """
         self.logger.debug('NCPA::getPhase')
        

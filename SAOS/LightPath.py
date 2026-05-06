@@ -39,6 +39,13 @@ class LightPath:
 
     # Initialize the buffers with the appropiate values during the initialization of the Light Pat
     def initialize_parameters(self):
+        """
+        Initialize the internal buffers used during light propagation.
+
+        Returns
+        -------
+        None
+        """
         # Process variables: updated per iteration
         # Optical Path Difference: is the difference in optical path length (OPL) between two rays of light [m]
         # IMPORTANT: DM is considered transmissive, instead of reflective, so there is no need to multiply by 2
@@ -313,15 +320,13 @@ class LightPath:
     
     def get_wavefront_error(self):
         """
-        Simulate light propagation through the configured optical path.
-
-        Parameters
-        ----------
+        Return the wavefront error measurement, accounting for latency delay.
 
         Returns
         -------
-        np.ndarray
-            Measurements delayed or array of zeros if there are not enough measurements. False if there is not WFS.
+        np.ndarray or bool
+            Delayed measurement array, zeros if not enough iterations have elapsed,
+            or False if no WFS is attached to this light path.
         """
 
         if self.wfs:

@@ -12,7 +12,7 @@ import logging.handlers
 from queue import Queue
 
 import numpy as np
-import scipy as sp
+
 import torch
 
 import cv2
@@ -67,8 +67,6 @@ class CorrelatingShackHartmann:
             Extra FoV in [arcsec] that is taken for the FFT computation, in order to reduce wrapping effects.
         use_brightest : int, optional
             Picks the n brightest pixels as threshold for center-of-gravity spot detection.
-        is_geometric : bool, optional
-            Enable geometric mode (gradient-based measurement).
         threshold_convolution : float, optional
             Cut-off threshold for Gaussian convolution.
         unit_in_rad : bool, optional
@@ -568,6 +566,23 @@ class CorrelatingShackHartmann:
         return psf
     
     def compute_images(self, psf, subDirs_sun, new_px):
+        """
+        Compute correlated subaperture images using convolution.
+
+        Parameters
+        ----------
+        psf : torch.Tensor
+            PSF of the subapertures.
+        subDirs_sun : np.ndarray
+            Sun subdirectories used as object.
+        new_px : int
+            New size in pixels for the sun subdirectories.
+
+        Returns
+        -------
+        torch.Tensor
+            Convoluted images.
+        """
         
         # Convert to Tensor
         sun_torch = torch.from_numpy(subDirs_sun).contiguous().to(self.device) # 4D: 
@@ -601,6 +616,21 @@ class CorrelatingShackHartmann:
         return sun_patches
     
     def merges_images(self, sun_patches, src):
+        """
+        Merge sun patches into a single frame.
+
+        Parameters
+        ----------
+        sun_patches : torch.Tensor
+            The convoluted sun patches per subaperture.
+        src : Source
+            The solar source object.
+
+        Returns
+        -------
+        np.ndarray
+            The merged full-field images.
+        """
         # Resize the 2D filter
         filter_2D_torch = torch.from_numpy(src.filter_2D).contiguous().to(self.device)
         filter_2D_torch = filter_2D_torch.view(filter_2D_torch.shape[0], filter_2D_torch.shape[1], -1).permute(2, 0, 1)
@@ -844,12 +874,11 @@ class CorrelatingShackHartmann:
             Phase map input [radians].
         src : Source
             Source object.
-        integrate : bool, optional
-            Whether to include camera integration effects.
         pseudoref : torch.Tensor
             Pseudo-reference image used for the correlations, if None the method picks one.
         reference_slopes : np.ndarray
             Reference for the WF sensor, if None, geometric references are used.
+
         Returns
         -------
         tuple

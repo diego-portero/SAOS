@@ -1,3 +1,0 @@
-# Misregistration
-
-::: OOPAO.MisRegistration.MisRegistration

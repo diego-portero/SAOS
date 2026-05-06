@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-import h5py
+
 import time
 
 import logging
@@ -106,6 +106,27 @@ class Controller:
         self.initializeController(self.controllerType, self.reconstructor)
    
     def initializeReconstructor(self, reconstructionMethod, interactionMatrix):
+        """
+        Initialize the reconstructor matrix from the measured interaction matrices.
+
+        Parameters
+        ----------
+        reconstructionMethod : str
+            Type of reconstructor ('inversion' or 'tikhonov').
+        interactionMatrix : InteractionMatrixHandler
+            Object containing the measured interaction matrices and modal basis.
+
+        Returns
+        -------
+        reconstructor : list
+            List of reconstructor matrices per DM.
+        modal_basis : list
+            List of modal basis per DM.
+        mask : np.ndarray
+            Boolean mask indicating interactions between DMs and light paths.
+        discarded_modes : list
+            List of number of discarded modes per DM.
+        """
         self.logger.info('Controller::initializeReconstructor - Computing the reconstructor.')
         t0 = time.time()
 
@@ -219,6 +240,21 @@ class Controller:
         return reconstructor, modal_basis, mask, discarded_modes
     
     def initializeController(self, controllerType, reconstructor):
+        """
+        Initialize the control state (history buffers) based on the controller type.
+
+        Parameters
+        ----------
+        controllerType : str
+            Type of controller ('leaky', 'forwardPI', 'backwardPI').
+        reconstructor : list
+            List of reconstructor matrices per DM.
+
+        Returns
+        -------
+        bool
+            True if initialization succeeds.
+        """
 
         if controllerType == 'leaky':
             self.command_previous = [torch.zeros((reconstructor[i].shape[0],1), dtype=torch.float64, device=self.device) for i in range(len(reconstructor))]
@@ -231,6 +267,19 @@ class Controller:
         return True
 
     def computeControlAction(self, lightPaths):
+        """
+        Compute the control action for each DM given the wavefront error from the light paths.
+
+        Parameters
+        ----------
+        lightPaths : list
+            List of LightPath objects that contain the wavefront error measurements.
+
+        Returns
+        -------
+        dm_cmd : list
+            List of command arrays to be sent to each Deformable Mirror.
+        """
 
         # Get the combined measurement array for each DM
         error = []
