@@ -1,75 +1,86 @@
-site_name: SAOS Documentation
-site_description: Solar Adaptive Optics Simulator — documentation
+site_name: SAOS
+site_description: Solar Adaptive Optics Simulator — a Python-first, free-threaded simulation framework.
 site_url: https://nrodlin.github.io/SAOS/
+site_author: SAOS Contributors
 
 repo_name: nrodlin/SAOS
 repo_url: https://github.com/nrodlin/SAOS
+edit_uri: ""
 
 theme:
   name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
   features:
-    - navigation.tabs
-    - navigation.sections
-    - navigation.top
+    - navigation.tabs           # top-level nav as horizontal tabs
+    - navigation.expand         # expand all nav sections by default (fixes hidden submenus)
+    - navigation.indexes        # section index pages (allows clicking a section title)
+    - navigation.top            # "back to top" button
+    - navigation.footer         # prev/next links at bottom of each page
     - search.suggest
+    - search.highlight
     - content.code.copy
+    - content.code.annotate
   palette:
     - scheme: default
-      primary: indigo
-      accent: deep purple
+      primary: deep orange
+      accent: amber
       toggle:
-        icon: material/brightness-7
+        icon: material/weather-night
         name: Switch to dark mode
     - scheme: slate
-      primary: indigo
-      accent: deep purple
+      primary: deep orange
+      accent: amber
       toggle:
-        icon: material/brightness-4
+        icon: material/weather-sunny
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
   - search
   - mkdocs-jupyter:
-      execute: false        # do not re-execute notebooks on build
+      execute: false
       include_source: true
   - mkdocstrings:
       default_handler: python
       handlers:
         python:
           options:
-            docstring_style: numpy     # parse NumPy-style docstrings
-            show_source: false         # hide source code to keep docs clean
+            docstring_style: numpy
+            show_source: false
             show_root_heading: true
             show_submodules: false
             members_order: source
             separate_signature: true
             show_signature_annotations: true
+            heading_level: 2
 
 nav:
   - Home: index.md
   - Installation: installation.md
   - Tutorials:
+    - tutorials/index.md
     - Introduction to SAOS: tutorials/01_intro_to_saos.ipynb
   - API Reference:
-    - Core Optics:
-      - Telescope: api/telescope.md
-      - Source: api/source.md
-      - Extended Source: api/extended_source.md
-      - Layer: api/layer.md
-      - Atmosphere: api/atmosphere.md
-    - Adaptive Optics:
-      - Light Path: api/light_path.md
-      - Deformable Mirror: api/deformable_mirror.md
-      - Misregistration: api/misregistration.md
-      - NCPA: api/ncpa.md
-    - Wavefront Sensors:
-      - SHWFS: api/shwfs.md
-      - Correlating SHWFS: api/correlating_shwfs.md
-    - Detectors & Cameras:
-      - Detector: api/detector.md
-      - Science Camera: api/science_cam.md
-    - Control:
-      - Interaction Matrix: api/interaction_matrix.md
-      - Controller: api/controller.md
-    - Utilities:
-      - Sharepoint: api/sharepoint.md
+    - api/index.md
+    - Telescope: api/telescope.md
+    - Source: api/source.md
+    - Extended Source: api/extended_source.md
+    - Layer: api/layer.md
+    - Atmosphere: api/atmosphere.md
+    - Light Path: api/light_path.md
+    - Deformable Mirror: api/deformable_mirror.md
+    - Misregistration: api/misregistration.md
+    - NCPA: api/ncpa.md
+    - SHWFS: api/shwfs.md
+    - Correlating SHWFS: api/correlating_shwfs.md
+    - Detector: api/detector.md
+    - Science Camera: api/science_cam.md
+    - Interaction Matrix: api/interaction_matrix.md
+    - Controller: api/controller.md
+    - Sharepoint: api/sharepoint.md

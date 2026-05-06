@@ -10,12 +10,13 @@ A key feature of SAOS is that it is a **Python-only** repository. All paralleliz
 
 ## 📖 Documentation
 
-Comprehensive documentation, including installation guides, pedagogical tutorials, and API reference, is available via **GitHub Pages**. 
-*(The link will be active once the documentation is deployed to the `gh-pages` branch).*
+Full documentation — installation guides, pedagogical tutorials, and API reference — is available at:
 
-For now, you can build the documentation locally:
+**➡️ [https://nrodlin.github.io/SAOS/](https://nrodlin.github.io/SAOS/)**
+
+To build the documentation locally:
 ```bash
-pip install mkdocs-material mkdocs-jupyter
+pip install mkdocs mkdocs-material mkdocs-jupyter mkdocstrings[python]
 mkdocs serve
 ```
 
