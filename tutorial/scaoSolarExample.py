@@ -46,7 +46,7 @@ nModes = None # [nModesASM, nModesM7]
 im_stroke = [5e-7] # in meters
 
 # Loading files:
-load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/ps_scaoExample_r8cm.h5')
+load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/ps_scaoExample_r21cm.h5')
 load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/modalBasis_scaoExample.h5')
 load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/IM_scaoExample.h5')
 

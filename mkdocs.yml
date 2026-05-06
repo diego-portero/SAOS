@@ -1,25 +1,30 @@
-site_name: OOPAO Documentation
+site_name: SAOS Documentation
 theme:
   name: material
 
 plugins:
   - search
+  - mkdocs-jupyter
   - mkdocstrings:
       default_handler: python
 
 nav:
   - Home: index.md
-  - Light Path: light_path.md
-  - Atmosphere: atmosphere.md
-  - Source: source.md
-  - Extended Source: extended_source.md
-  - Telescope: telescope.md
-  - Deformable Mirror: deformable_mirror.md
-  - SHWFS: shwfs.md
-  - Correlating SHWFS: correlating_shwfs.md
-  - NCPA: ncpa.md
-  - Detector: detector.md
-  - Interaction Matrix: interaction_matrix.md
-  - Sharepoint: sharepoint.md
-  - Layer: layer.md
-  - Misregistration: misregistration.md
+  - Installation: installation.md
+  - Tutorials:
+    - Introduction to SAOS: tutorials/01_intro_to_saos.ipynb
+  - API Reference:
+    - Light Path: api/light_path.md
+    - Atmosphere: api/atmosphere.md
+    - Source: api/source.md
+    - Extended Source: api/extended_source.md
+    - Telescope: api/telescope.md
+    - Deformable Mirror: api/deformable_mirror.md
+    - SHWFS: api/shwfs.md
+    - Correlating SHWFS: api/correlating_shwfs.md
+    - NCPA: api/ncpa.md
+    - Detector: api/detector.md
+    - Interaction Matrix: api/interaction_matrix.md
+    - Sharepoint: api/sharepoint.md
+    - Layer: api/layer.md
+    - Misregistration: api/misregistration.md
