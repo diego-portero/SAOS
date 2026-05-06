@@ -1,3 +1,3 @@
 # Interaction Matrix Helper
 
-::: OOPAO.InteractionMatrixHandler.InteractionMatrixHandler
+::: SAOS.InteractionMatrixHandler.InteractionMatrixHandler

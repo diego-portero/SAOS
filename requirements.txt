@@ -1,6 +1,8 @@
 -e .
+mkdocs
 mkdocs-material
 mkdocs-jupyter
+mkdocstrings[python]
 jupyter
 zmq
 h5py

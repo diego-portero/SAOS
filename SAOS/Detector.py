@@ -11,8 +11,8 @@ Major implementation belong to OOPAO authors, the module now is just adjusted to
 """
 
 import numpy as np
-import time
-from SAOS.tools.tools import set_binning
+
+
 
 import logging
 import logging.handlers
@@ -182,7 +182,7 @@ class Detector:
         ----------
         input_frame : np.ndarray
             The noise-free frame to integrate.
-        photons : int
+        input_photons : int
             The number of photons received in the current sampling time.
 
         Returns
@@ -202,6 +202,21 @@ class Detector:
         return frame
         
     def readout(self, input_frame, photons):
+        """
+        Simulate the readout process of the detector including noises and quantification.
+
+        Parameters
+        ----------
+        input_frame : np.ndarray
+            The noise-free input frame.
+        photons : int or float
+            Number of incident photons.
+
+        Returns
+        -------
+        np.ndarray
+            The simulated quantized and saturated frame.
+        """
 
         # 1: Normalize energy in the frame to 1
         energy = np.sum(input_frame)

@@ -1,3 +1,3 @@
 # Extended Source
 
-::: OOPAO.ExtendedSource.ExtendedSource
+::: SAOS.ExtendedSource.ExtendedSource

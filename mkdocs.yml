@@ -1,12 +1,49 @@
 site_name: SAOS Documentation
+site_description: Solar Adaptive Optics Simulator — documentation
+site_url: https://nrodlin.github.io/SAOS/
+
+repo_name: nrodlin/SAOS
+repo_url: https://github.com/nrodlin/SAOS
+
 theme:
   name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
 
 plugins:
   - search
-  - mkdocs-jupyter
+  - mkdocs-jupyter:
+      execute: false        # do not re-execute notebooks on build
+      include_source: true
   - mkdocstrings:
       default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: numpy     # parse NumPy-style docstrings
+            show_source: false         # hide source code to keep docs clean
+            show_root_heading: true
+            show_submodules: false
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
 
 nav:
   - Home: index.md
@@ -14,17 +51,25 @@ nav:
   - Tutorials:
     - Introduction to SAOS: tutorials/01_intro_to_saos.ipynb
   - API Reference:
-    - Light Path: api/light_path.md
-    - Atmosphere: api/atmosphere.md
-    - Source: api/source.md
-    - Extended Source: api/extended_source.md
-    - Telescope: api/telescope.md
-    - Deformable Mirror: api/deformable_mirror.md
-    - SHWFS: api/shwfs.md
-    - Correlating SHWFS: api/correlating_shwfs.md
-    - NCPA: api/ncpa.md
-    - Detector: api/detector.md
-    - Interaction Matrix: api/interaction_matrix.md
-    - Sharepoint: api/sharepoint.md
-    - Layer: api/layer.md
-    - Misregistration: api/misregistration.md
+    - Core Optics:
+      - Telescope: api/telescope.md
+      - Source: api/source.md
+      - Extended Source: api/extended_source.md
+      - Layer: api/layer.md
+      - Atmosphere: api/atmosphere.md
+    - Adaptive Optics:
+      - Light Path: api/light_path.md
+      - Deformable Mirror: api/deformable_mirror.md
+      - Misregistration: api/misregistration.md
+      - NCPA: api/ncpa.md
+    - Wavefront Sensors:
+      - SHWFS: api/shwfs.md
+      - Correlating SHWFS: api/correlating_shwfs.md
+    - Detectors & Cameras:
+      - Detector: api/detector.md
+      - Science Camera: api/science_cam.md
+    - Control:
+      - Interaction Matrix: api/interaction_matrix.md
+      - Controller: api/controller.md
+    - Utilities:
+      - Sharepoint: api/sharepoint.md

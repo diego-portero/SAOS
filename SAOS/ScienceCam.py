@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 from joblib import delayed, Parallel
-from types import SimpleNamespace
+
 
 from .Detector import Detector
 
@@ -269,6 +269,21 @@ class ScienceCam:
         return frame.cpu().numpy()
     
     def apply_noise(self, frame, total_photons):
+        """
+        Apply detector noise to the science frame.
+
+        Parameters
+        ----------
+        frame : np.ndarray
+            The input noise-free science frame.
+        total_photons : int or float
+            Total number of photons arriving.
+
+        Returns
+        -------
+        np.ndarray
+            The noisy science frame.
+        """
         # Compute photons arriving to the sensor
         input_photons = total_photons * self.lightRatio
         # Add detector noise

@@ -1,3 +1,3 @@
 # Deformable Mirror
 
-::: OOPAO.DeformableMirror.DeformableMirror
+::: SAOS.DeformableMirror.DeformableMirror
