@@ -10,12 +10,13 @@ A key feature of SAOS is that it is a **Python-only** repository. All paralleliz
 
 ## 📖 Documentation
 
-Comprehensive documentation, including installation guides, pedagogical tutorials, and API reference, is available via **GitHub Pages**. 
-*(The link will be active once the documentation is deployed to the `gh-pages` branch).*
+Full documentation — installation guides, pedagogical tutorials, and API reference — is available at:
 
-For now, you can build the documentation locally:
+**➡️ [https://nrodlin.github.io/SAOS/](https://nrodlin.github.io/SAOS/)**
+
+To build the documentation locally:
 ```bash
-pip install mkdocs-material mkdocs-jupyter
+pip install mkdocs mkdocs-material mkdocs-jupyter mkdocstrings[python]
 mkdocs serve
 ```
 
@@ -31,8 +32,3 @@ git checkout develop
 pip install -e .
 ```
 
-## ⚠️ Guidelines
-
-- **SAOS is currently in the testing phase** of its first release. All development is ongoing in the **tech-development** branch. We recommend waiting a little longer before using SAOS in your work!
-- If you are primarily a night-time AO user and do not require multi-conjugate AO (MCAO) or you need pyramid WFS simulations, we recommend using **OOPAO** instead. See: [OOPAO AO4ELT7 Proceedings (Héritier et al. 2023)](https://hal.science/AO4ELT7/hal-04402878v1).
-- If you need to simulate multiple lines of sight or perform Solar AO simulations, **SAOS** is the repository for you. We have not yet published a full article describing SAOS, but it is in preparation —please keep an eye on the repository for updates!

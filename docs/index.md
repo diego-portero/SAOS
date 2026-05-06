@@ -1,22 +1,68 @@
-# SAOS: Solar Adaptive Optics Simulator
+<div class="saos-hero" markdown>
 
-Welcome to the documentation for **SAOS**, a highly-parallelized, object-oriented simulation framework designed specifically for Solar Adaptive Optics.
+# ☀️ SAOS
 
-SAOS is built upon the foundational concepts of OOPAO (Object-Oriented Python Adaptive Optics) but introduces a completely new architecture centered around the `LightPath` paradigm. This shift enables powerful multi-core processing, making it possible to run computationally expensive wide-field Solar AO simulations using free-threaded Python.
+**Solar Adaptive Optics Simulator** — a Python-first, free-threaded simulation framework for wide-field solar AO.
+
+<div class="saos-hero-badge" markdown>
+[📚 Documentation](installation.md){ .md-button }
+[🚀 Get Started](tutorials/01_intro_to_saos.ipynb){ .md-button }
+[💻 GitHub](https://github.com/nrodlin/SAOS){ .md-button }
+</div>
+
+</div>
+
+<div class="saos-cards" markdown>
+
+<div class="saos-card" markdown>
+<div class="saos-card-icon">🧵</div>
+
+### Free-Threaded Python
+
+Built for Python 3.13t. Scales across CPU cores with no GIL bottleneck — essential for solar AO's wide-field computations.
+
+</div>
+
+<div class="saos-card" markdown>
+<div class="saos-card-icon">🛤️</div>
+
+### LightPath Abstraction
+
+Each line of sight is an independent `LightPath` — a transparent pipeline connecting atmosphere, DM, and WFS.
+
+</div>
+
+<div class="saos-card" markdown>
+<div class="saos-card-icon">☀️</div>
+
+### Solar & Night-Time AO
+
+Supports extended sources (Sun) via `CorrelatingShackHartmann` and point sources via classical `ShackHartmann`.
+
+</div>
+
+<div class="saos-card" markdown>
+<div class="saos-card-icon">🔥</div>
+
+### PyTorch Accelerated
+
+Heavy image and FFT operations run on PyTorch — CPU today, GPU-ready tomorrow.
+
+</div>
+
+</div>
 
 ---
 
-## 🚀 Key Features
+## Where to go next?
 
-- **Multi-threaded Architecture**: Fully compatible with Python 3.13 free-threaded builds (`-t`), scaling cleanly across multiple CPU cores.
-- **Light Path Abstraction**: Allows easy correlation of extended sources (like the Sun) through multiple turbulent layers and deformable mirrors.
-- **OOP Design**: Simple to configure and extend, with individual classes for `Telescope`, `Atmosphere`, `DeformableMirror`, `ShackHartmann`, etc.
-- **Python Only**: No MATLAB dependencies. All heavy lifting is handled by Numpy/Scipy, with optional PyTorch support.
+| | |
+|---|---|
+| **[Installation](installation.md)** | Set up your Python 3.13t environment and install SAOS. |
+| **[Introduction tutorial](tutorials/01_intro_to_saos.ipynb)** | Step-by-step notebook: build your first SCAO simulation. |
+| **[API Reference](api/index.md)** | Full documentation of every class and method. |
 
 ---
 
-## 📖 Where to go next?
+> **SAOS is based on [OOPAO](https://github.com/cheritier/OOPAO)** by Cédric Taïssir Héritier. The LightPath architecture and solar AO extensions are the main new contributions of SAOS.
 
-- **[Installation](installation.md)**: Step-by-step instructions on setting up your environment for maximum performance.
-- **[Tutorials](tutorials/01_intro_to_saos.ipynb)**: Pedagogical notebooks explaining how to build and run your first simulations.
-- **[API Reference](api/atmosphere.md)**: Detailed documentation of the internal classes and methods.
