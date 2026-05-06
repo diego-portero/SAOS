@@ -69,6 +69,48 @@ git checkout develop
 pip install -e .
 ```
 
+### Git Large File Storage (LFS)
+
+SAOS uses **Git LFS** to store large binary assets such as solar granulation images
+(e.g., `SAOS/images/cont_500nm.h5`, `cont_680nm.h5`). These files are required for
+solar AO simulations with `ExtendedSource`. Without pulling them, the simulator
+will fail to load the solar image data.
+
+**1. Install git-lfs** (if not already installed):
+
+```bash
+# Ubuntu / Debian
+sudo apt install git-lfs
+
+# macOS (Homebrew)
+brew install git-lfs
+
+# Or via conda
+conda install -c conda-forge git-lfs
+```
+
+**2. Enable LFS in your git configuration** (one-time setup):
+
+```bash
+git lfs install
+```
+
+**3. Pull the LFS-tracked files** after cloning:
+
+```bash
+# Inside the SAOS directory
+git lfs pull
+```
+
+This will download the solar image files. You can verify them with:
+
+```bash
+git lfs ls-files
+```
+
+> **Note:** `git lfs pull` requires network access to GitHub. If you are on a
+> restricted network, ask your system administrator to mirror the LFS objects.
+
 ## 4. Additional Dependencies
 
 Depending on your simulation needs, you may want to install the following dependencies:
