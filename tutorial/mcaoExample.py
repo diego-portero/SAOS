@@ -45,7 +45,7 @@ nModes = None # [nModesASM, nModesM7]
 im_stroke = [5e-7, 1.5e-6, 1.5e-6] # in meters
 
 # Loading files:
-load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/ps_mcaoExample_r8cm.h5')
+load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/ps_mcaoExample_r12cm.h5')
 load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/modalBasis_mcaoExample.h5')
 load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/IM_mcaoExample.h5')
 
@@ -88,7 +88,7 @@ spider_thickness = 0.060 # in [m]
 
 ## Atmosphere:
 
-atm = Atmosphere(r0 = 0.08,
+atm = Atmosphere(r0 = 0.12,
                  L0= 25,
                  fractionalR0=[0.53, 0.37, 0.05, 0.03, 0.02],
                  altitude=[100, 1500, 5000, 10000, 15000],
