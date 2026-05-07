@@ -43,22 +43,17 @@ extra_css:
 
 plugins:
   - search
-  - mkdocs-jupyter:
-      execute: false
-      include_source: true
   - mkdocstrings:
       default_handler: python
       handlers:
         python:
           options:
             docstring_style: numpy
-            show_source: false
-            show_root_heading: true
-            show_members: true
+            members: true
             members_order: source
+            show_source: false
             separate_signature: true
             show_signature_annotations: true
-
 markdown_extensions:
   - attr_list          # enables {.class} syntax on links → md-button, etc.
   - md_in_html         # enables markdown inside <div markdown> blocks (hero, cards)
