@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-import h5py
+
 import time
 
 import logging
@@ -66,9 +66,12 @@ class Controller:
         # Default will change to list of size nDMs once the IM is scanned
         self.rcond = kwargs.get('rcond', 0.025)
         self.beta = kwargs.get('beta', 1e-4) # adim, adjusted through trial-error
+        
+        # Mask provided by the user to select specific WFS-DM links
+        self.control_mask = kwargs.get('control_mask', None)
 
         # Run the initialization of the reconstructor
-        self.reconstructor, self.modal_basis, self.mask, self.altitude = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)                
+        self.reconstructor, self.modal_basis, self.mask, self.discarded_modes = self.initializeReconstructor(self.reconstructionMethod, interactionMatrix)                
 
         # Setup the controller
 
@@ -103,6 +106,27 @@ class Controller:
         self.initializeController(self.controllerType, self.reconstructor)
    
     def initializeReconstructor(self, reconstructionMethod, interactionMatrix):
+        """
+        Initialize the reconstructor matrix from the measured interaction matrices.
+
+        Parameters
+        ----------
+        reconstructionMethod : str
+            Type of reconstructor ('inversion' or 'tikhonov').
+        interactionMatrix : InteractionMatrixHandler
+            Object containing the measured interaction matrices and modal basis.
+
+        Returns
+        -------
+        reconstructor : list
+            List of reconstructor matrices per DM.
+        modal_basis : list
+            List of modal basis per DM.
+        mask : np.ndarray
+            Boolean mask indicating interactions between DMs and light paths.
+        discarded_modes : list
+            List of number of discarded modes per DM.
+        """
         self.logger.info('Controller::initializeReconstructor - Computing the reconstructor.')
         t0 = time.time()
 
@@ -126,6 +150,20 @@ class Controller:
             for j in range(nLPs):
                 if interactionMatrix.interaction_matrix_warehouse[i][j]['IM'] is not None:
                     mask[i, j] = True
+
+        if hasattr(self, 'control_mask') and self.control_mask is not None:
+            # Check dimensions
+            control_mask_arr = np.array(self.control_mask, dtype=bool)
+            if control_mask_arr.shape != (nDMs, nLPs):
+                self.logger.error(f'Controller - control_mask shape must be ({nDMs}, {nLPs})')
+                raise ValueError(f'control_mask shape mismatch. Expected ({nDMs}, {nLPs}), got {control_mask_arr.shape}')
+            
+            # Warn if user requests control where no IM exists
+            invalid_requests = control_mask_arr & (~mask)
+            if np.any(invalid_requests):
+                self.logger.warning('Controller - control_mask requests control for DM/LP pairs without an interaction matrix. These will be ignored.')
+                
+            mask = mask & control_mask_arr
 
         # Check the reconstructor parameters
         if reconstructionMethod == 'inversion':
@@ -154,10 +192,15 @@ class Controller:
                     modal_basis_type = interactionMatrix.interaction_matrix_warehouse[i][j]['modalBasis']
                     modal_basis.append(torch.as_tensor(interactionMatrix.modal_basis[i][modal_basis_type], dtype=torch.float64, device=self.device))
                     break
-        # Get altitudes:
-        altitude = []
-        for i in range(len(interactionMatrix.dm_scanned_list)):
-            altitude.append(interactionMatrix.dm_scanned_list[i].altitude)
+        # Get discarded modes metadata:
+        discarded_modes = []
+        for i in range(nDMs):
+            found_discarded_modes = 0
+            for j in range(nLPs):
+                if interactionMatrix.interaction_matrix_warehouse[i][j]['IM'] is not None:
+                    found_discarded_modes = interactionMatrix.interaction_matrix_warehouse[i][j].get('discarded_modes', 0)
+                    break
+            discarded_modes.append(found_discarded_modes)
 
         # Now, define the reconstruction matrices for each DM
 
@@ -170,26 +213,48 @@ class Controller:
                     # Append the IMs to shape one large matrix of size nValidAct x nSignals
                     interaction_matrix_per_DM.append(interactionMatrix.interaction_matrix_warehouse[i][j]['IM'])
             # Compute the reconstructor
-            interaction_matrix_per_DM = torch.as_tensor(np.vstack(interaction_matrix_per_DM), dtype=torch.float64, device=self.device).squeeze()
-            if reconstructionMethod == 'inversion':
-                temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond[i])
-            elif reconstructionMethod == 'tikhonov':
-                # (D.T@D + alfa*I)@D.T --> implemented through SVD to improve the stability of the inversion and the automation of alfa
-                H = interaction_matrix_per_DM
-                U, S, Vh = torch.linalg.svd(H, full_matrices=False)
-                alfa = self.beta[i] * torch.max(S)**2
-                S_reg = S / (S**2 + alfa)
-                temp_reconstructor = Vh.T @ torch.diag(S_reg) @ U.T
+            if len(interaction_matrix_per_DM) == 0:
+                self.logger.warning(f'Controller - DM {i} has no associated WFS in the control mask. Setting reconstructor to zero.')
+                nModes = modal_basis[i].shape[1]
+                temp_reconstructor = torch.zeros((nModes, 0), dtype=torch.float64, device=self.device)
             else:
-                self.logger.error('Controller::initializeReconstructor - Unknown reconstructor')
-                raise ValueError('Unknown reconstructor method.')
+                interaction_matrix_per_DM = torch.as_tensor(np.vstack(interaction_matrix_per_DM), dtype=torch.float64, device=self.device).squeeze()
+                if interaction_matrix_per_DM.ndim == 1:
+                    interaction_matrix_per_DM = interaction_matrix_per_DM.unsqueeze(0)
+                if reconstructionMethod == 'inversion':
+                    temp_reconstructor = torch.linalg.pinv(interaction_matrix_per_DM, self.rcond[i])
+                elif reconstructionMethod == 'tikhonov':
+                    # (D.T@D + alfa*I)@D.T --> implemented through SVD to improve the stability of the inversion and the automation of alfa
+                    H = interaction_matrix_per_DM
+                    U, S, Vh = torch.linalg.svd(H, full_matrices=False)
+                    alfa = self.beta[i] * torch.max(S)**2
+                    S_reg = S / (S**2 + alfa)
+                    temp_reconstructor = Vh.T @ torch.diag(S_reg) @ U.T
+                else:
+                    self.logger.error('Controller::initializeReconstructor - Unknown reconstructor')
+                    raise ValueError('Unknown reconstructor method.')
             reconstructor.append(temp_reconstructor)
 
         self.logger.info(f'Controller::initializeReconstructor - Reconstruction took {time.time()-t0}[s]')
 
-        return reconstructor, modal_basis, mask, altitude
+        return reconstructor, modal_basis, mask, discarded_modes
     
     def initializeController(self, controllerType, reconstructor):
+        """
+        Initialize the control state (history buffers) based on the controller type.
+
+        Parameters
+        ----------
+        controllerType : str
+            Type of controller ('leaky', 'forwardPI', 'backwardPI').
+        reconstructor : list
+            List of reconstructor matrices per DM.
+
+        Returns
+        -------
+        bool
+            True if initialization succeeds.
+        """
 
         if controllerType == 'leaky':
             self.command_previous = [torch.zeros((reconstructor[i].shape[0],1), dtype=torch.float64, device=self.device) for i in range(len(reconstructor))]
@@ -202,6 +267,19 @@ class Controller:
         return True
 
     def computeControlAction(self, lightPaths):
+        """
+        Compute the control action for each DM given the wavefront error from the light paths.
+
+        Parameters
+        ----------
+        lightPaths : list
+            List of LightPath objects that contain the wavefront error measurements.
+
+        Returns
+        -------
+        dm_cmd : list
+            List of command arrays to be sent to each Deformable Mirror.
+        """
 
         # Get the combined measurement array for each DM
         error = []
@@ -213,7 +291,10 @@ class Controller:
                     combined_slopes.append(lightPaths[j].get_wavefront_error())
             
             # Convert to torch
-            error.append((-1)*torch.as_tensor(np.hstack(combined_slopes).T, dtype=torch.float64, device=self.device).unsqueeze(1)) # -1 for the feedback
+            if len(combined_slopes) > 0:
+                error.append((-1)*torch.as_tensor(np.hstack(combined_slopes).T, dtype=torch.float64, device=self.device).unsqueeze(1)) # -1 for the feedback
+            else:
+                error.append(torch.zeros((0, 1), dtype=torch.float64, device=self.device))
         
         # Compute the DM command
         modal_error = []
@@ -235,10 +316,8 @@ class Controller:
         dm_cmd = []
 
         for i in range(len(self.reconstructor)):
-            if self.altitude[i] > 0: # TT is discarded automatically in the IM measurement
-                dm_cmd.append(self.modal_basis[i][:,2:2+self.reconstructor[i].shape[0]] @ modal_cmd[i])
-            else:
-                dm_cmd.append(self.modal_basis[i][:,:self.reconstructor[i].shape[0]] @ modal_cmd[i])
+            offset = self.discarded_modes[i]
+            dm_cmd.append(self.modal_basis[i][:, offset : offset + self.reconstructor[i].shape[0]] @ modal_cmd[i])
 
         # Update history buffers for the next iteration
 

@@ -11,8 +11,8 @@ Major update on March 24 2025
 
 import numpy as np
 import torch
-import scipy as sp
-from joblib import Parallel, delayed
+
+
 
 import h5py
 
@@ -231,20 +231,17 @@ class DeformableMirror:
     
     def generate_radial_dm(self):
         """
-        Generates a distribution of radial points approximated by hexagons, 
-        and a logic mask filtering the points that are within the limits of
-        the external pupil diameter.
+        Generate a distribution of radial actuator points approximated by a hexagonal grid,
+        with a logic mask filtering the points within the external pupil diameter.
 
-        Parameters
-        ----------
         Returns
         -------
         coordinates : numpy.ndarray
-            X and Y coordinates aranged as [nActs**2,2]
+            X and Y coordinates arranged as [nActs, 2].
         validAct : numpy.ndarray
-            Logic mask of valid actuators
+            Boolean mask of valid actuators.
         nValidAct : int
-            Number of valid actuators
+            Number of valid actuators.
         """
         # Define the vertical spacing for the actuators --> pitch applies for the 
 
@@ -281,7 +278,7 @@ class DeformableMirror:
 
     def precomputeGaussianRBFInterpolant(self, input_points, output_points, epsilon):
         """
-        Generates a distribution of radial points approximated by haxagons, 
+        Generates a distribution of radial points approximated by hexagons, 
         and a logic mask filtering the points that are within the limits of
         the external pupil diameter.
 
@@ -293,8 +290,6 @@ class DeformableMirror:
             Coordinates of the high resolution output grid
         epsilon : float
             Radial scaling factor for the Gaussian fitting
-        smoothing : 
-
         Returns
         -------
         L : torch.Tensor
@@ -482,23 +477,25 @@ class DeformableMirror:
     
     def load_dynamic_model(self, filename, samplingTime):
         """
-        Load state-space of the deformable mirror.
+        Load the state-space model of the deformable mirror from an HDF5 file.
 
         Parameters
         ----------
-        path : str
-            Path to the h5 containing the state-space.
+        filename : str
+            Path to the H5 file containing the discrete state-space matrices.
+        samplingTime : float
+            Sampling time used to discretize the model [s].
 
         Returns
         -------
         A : torch.Tensor
-            Discrete state-transition matrix
+            Discrete state-transition matrix.
         B : torch.Tensor
-            Discrete input-state matrix
+            Discrete input-state matrix.
         C : torch.Tensor
-            Discrete state-output matrix
+            Discrete state-output matrix.
         D : torch.Tensor
-            Discrete feedthrough matrix
+            Discrete feedthrough matrix.
         """        
 
         self.logger.debug('DeformableMirror::load_dynamic_model')
@@ -617,10 +614,17 @@ class DeformableMirror:
     
     def updateMisreg(self, elapsedTime):
         """
-        Update the mis-registration params by the temporal factor
+        Update the mis-registration params by the temporal factor.
+
+        Parameters
+        ----------
+        elapsedTime : float
+            Time elapsed in seconds.
+
         Returns
-        --------
-        True
+        -------
+        bool
+            True if updated successfully.
         """
         self.misReg.update_params(elapsedTime)
 

@@ -1,25 +1,93 @@
-site_name: OOPAO Documentation
+site_name: SAOS
+site_description: Solar Adaptive Optics Simulator — a Python-first, free-threaded simulation framework.
+site_url: https://nrodlin.github.io/SAOS/
+site_author: SAOS Contributors
+
+repo_name: nrodlin/SAOS
+repo_url: https://github.com/nrodlin/SAOS
+edit_uri: ""
+
 theme:
   name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.tabs           # top-level nav as horizontal tabs
+    - navigation.expand         # expand all nav sections by default (fixes hidden submenus)
+    - navigation.indexes        # section index pages (allows clicking a section title)
+    - navigation.top            # "back to top" button
+    - navigation.footer         # prev/next links at bottom of each page
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: deep orange
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep orange
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
   - search
   - mkdocstrings:
       default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            members: true
+            members_order: source
+            show_source: false
+            separate_signature: true
+            show_signature_annotations: true
+markdown_extensions:
+  - attr_list          # enables {.class} syntax on links → md-button, etc.
+  - md_in_html         # enables markdown inside <div markdown> blocks (hero, cards)
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
 
 nav:
   - Home: index.md
-  - Light Path: light_path.md
-  - Atmosphere: atmosphere.md
-  - Source: source.md
-  - Extended Source: extended_source.md
-  - Telescope: telescope.md
-  - Deformable Mirror: deformable_mirror.md
-  - SHWFS: shwfs.md
-  - Correlating SHWFS: correlating_shwfs.md
-  - NCPA: ncpa.md
-  - Detector: detector.md
-  - Interaction Matrix: interaction_matrix.md
-  - Sharepoint: sharepoint.md
-  - Layer: layer.md
-  - Misregistration: misregistration.md
+  - Installation: installation.md
+  - Tutorials:
+    - tutorials/index.md
+    - Introduction to SAOS: tutorials/01_intro_to_saos.ipynb
+  - API Reference:
+    - api/index.md
+    - Telescope: api/telescope.md
+    - Source: api/source.md
+    - Extended Source: api/extended_source.md
+    - Layer: api/layer.md
+    - Atmosphere: api/atmosphere.md
+    - Light Path: api/light_path.md
+    - Deformable Mirror: api/deformable_mirror.md
+    - Misregistration: api/misregistration.md
+    - NCPA: api/ncpa.md
+    - SHWFS: api/shwfs.md
+    - Correlating SHWFS: api/correlating_shwfs.md
+    - Detector: api/detector.md
+    - Science Camera: api/science_cam.md
+    - Interaction Matrix: api/interaction_matrix.md
+    - Controller: api/controller.md
+    - Sharepoint: api/sharepoint.md

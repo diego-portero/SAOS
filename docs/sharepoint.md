@@ -1,3 +1,0 @@
-# Sharepoint
-
-::: OOPAO.Sharepoint.Sharepoint

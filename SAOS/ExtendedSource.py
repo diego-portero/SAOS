@@ -188,9 +188,10 @@ class ExtendedSource(Source):
         # Source: Serpone, Nick & Horikoshi, Satoshi & Emeline, Alexei. (2010). 
         # Microwaves in advanced oxidation processes for environmental applications. A brief review. 
         # Journal of Photochemistry and Photobiology C-photochemistry Reviews - J PHOTOCHEM PHOTOBIOL C-PHOTO. 11. 114-131. 10.1016/j.jphotochemrev.2010.07.003. 
-        phot.V     =  [0.500e-6, 0.0, 1.14e11]#[0.500e-6, 0.0, 3.5e20]
-        phot.R     =  [0.680e-6, 0.0, 1.14e11]
-        phot.IR    =  [1.300e-6, 0.0, 1.14e11]
+        phot.V      =  [0.500e-6, 0.0, 1.14e11]
+        phot.V1     =  [0.525e-6, 0.0, 1.14e11]
+        phot.R      =  [0.680e-6, 0.0, 1.14e11]
+        phot.IR     =  [1.300e-6, 0.0, 1.14e11]
          
         if isinstance(arg,str):
             if hasattr(phot,arg):

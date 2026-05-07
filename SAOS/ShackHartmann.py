@@ -15,13 +15,13 @@ import logging.handlers
 from queue import Queue
 
 import numpy as np
-import scipy as sp
+
 import torch
 
 import cv2
 
 from .Detector import Detector
-from .tools.tools import bin_ndarray
+
 
 """
 Shack Hartmann Wavefront Sensor Module
@@ -781,8 +781,6 @@ class ShackHartmann:
             Phase map input [radians].
         src : Source
             Source object.
-        integrate : bool, optional
-            Whether to include camera integration effects.
 
         Returns
         -------

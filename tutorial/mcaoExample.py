@@ -33,7 +33,7 @@ test_logger = LoggingHelper(logging.INFO)
 
 # Simulation settings:
 
-nIterations = 250
+nIterations = 2000
 
 scienceFs = 56. # Hz
 
@@ -42,12 +42,12 @@ measure_new_IM = False
 load_modal_basis = True
 
 nModes = None # [nModesASM, nModesM7]
-im_stroke = [1e-6, 1.5e-6, 1.5e-6] # in meters
+im_stroke = [5e-7, 1.5e-6, 1.5e-6] # in meters
 
 # Loading files:
-load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/mcaoExample.h5')
-load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/mcaoExample.h5')
-load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/mcaoExample.h5')
+load_filename_atm = os.path.join(os.path.expanduser("~"), 'simulations/phase_screens/ps_mcaoExample_r12cm.h5')
+load_filename_modalBasis = os.path.join(os.path.expanduser("~"), 'simulations/modal_basis/modalBasis_mcaoExample.h5')
+load_filename_IM = os.path.join(os.path.expanduser("~"), 'simulations/interaction_matrix/IM_mcaoExample.h5')
 
 # Saving files
 date = datetime.datetime.now().strftime("%Y%m%d_%H%M")
@@ -88,14 +88,14 @@ spider_thickness = 0.060 # in [m]
 
 ## Atmosphere:
 
-atm = Atmosphere(r0 = 0.40,
+atm = Atmosphere(r0 = 0.12,
                  L0= 25,
-                 fractionalR0=[0.29, 0.19, 0.20, 0.19, 0.14],
+                 fractionalR0=[0.53, 0.37, 0.05, 0.03, 0.02],
                  altitude=[100, 1500, 5000, 10000, 15000],
-                 windDirection=[0, 45, 225, 315, 135],
-                 windSpeed=[8, 19, 20, 17, 23],
+                 windDirection=[45, 90, 180, 67, 2],
+                 windSpeed=[6.7, 8.5, 12.7, 23.4, 8.3],
                  telescope=est_tel,
-                 zenith = 60,
+                 zenith = 0,
                  logger=test_logger.logger)
 
 if generate_new_atm:
@@ -118,44 +118,46 @@ for i in range(len(coord_list)):
                            logger=test_logger.logger))
     
 
-ext_sci_ngs = Source(magnitude = 5,
-                    optBand = 'R4',
-                    coordinates=[25,30],
-                    logger=test_logger.logger)
+coord_list_field = [[0, 0]] + [[3.75, i * 360 / 4] for i in range(4)] + [[7.5, i * 360 / 4] for i in range(4)] + [[15, i * 360 / 4] for i in range(4)] + [[20, i * 360 / 4] for i in range(4)] + [[25, i * 360 / 4] for i in range(4)]
+
+sci_list = []
+
+for i in range(len(coord_list_field)):
+    sci_list.append(Source(magnitude = 5,
+                           optBand = 'R4',
+                           coordinates=coord_list_field[i],
+                           logger=test_logger.logger))
 
 ## Deformable mirrors:
 
-asm_params = {'dynamicModel': ''}
+asm_params = {'dynamicModel': '', 'validActThreshpercentage': 0.7533}
 
 asm = DeformableMirror(telescope=est_tel,
                         nActs=n_subaperture_red+1,
                         altitude=0,
-                        typeDM='radial',
+                        typeDM='cartesian',
                         logger=test_logger.logger,
                         **asm_params) # ASM
 
+m3_params = {'dynamicModel': '', 'validActThreshpercentage': 0.7533}
 
 m3 = DeformableMirror(telescope=est_tel,
                         nActs=25,
                         altitude=20000,
                         typeDM='cartesian',
-                        logger=test_logger.logger) # M3
+                        logger=test_logger.logger,
+                        **m3_params) # M3
+
+m6_params = {'dynamicModel': '', 'validActThreshpercentage': 0.7533}
 
 m6 = DeformableMirror(telescope=est_tel,
                         nActs=25,
                         altitude=5000,
                         typeDM='cartesian',
-                        logger=test_logger.logger) # M6
+                        logger=test_logger.logger,
+                        **m6_params) # M6
 
 dms = [asm, m3, m6]
-
-## Vibration
-
-red_vibration_file = '/home/oopao/simulations/VibrationsSource/EST_vibration_1.h5'
-vis_vibration_file = '/home/oopao/simulations/VibrationsSource/EST_vibration_1.h5'
-
-red_vibrations = None #Vibration(est_tel, red_vibration_file, test_logger.logger)
-vis_vibrations = None #Vibration(est_tel, vis_vibration_file, test_logger.logger)
 
 ## Wavefront Sensor
 
@@ -183,23 +185,20 @@ red_scicam = ScienceCam(fieldOfView=9.269,
 
 ## Build the Light Path
 
-scao_light_path_list = []
+light_path_list = []
 
-# Create red branch
+# Create red branch: sensing
 for i in range(len(ngs_list)):
-    if (i == 0) or (i == 2) or (i == 6): # Add science camera
-        scao_light_path_list.append(LightPath(test_logger.logger))
-        scao_light_path_list[-1].initialize_path(src=ngs_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=red_vibrations, sci=red_scicam, delay=0)
-    else:
-        scao_light_path_list.append(LightPath(test_logger.logger))
-        scao_light_path_list[-1].initialize_path(src=ngs_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=red_vibrations, sci=None, delay=0)
+    light_path_list.append(LightPath(test_logger.logger))
+    light_path_list[-1].initialize_path(src=ngs_list[i], atm=atm, tel=est_tel, dm=dms, wfs=red_wfs, vibration=None, sci=None, delay=0)
 
-scao_light_path_list.append(LightPath(test_logger.logger))
-scao_light_path_list[-1].initialize_path(src=ext_sci_ngs, atm=atm, tel=est_tel, dm=dms, wfs=None, vibration=red_vibrations, sci=red_scicam, delay=0)
+for i in range(len(sci_list)):
+    light_path_list.append(LightPath(test_logger.logger))
+    light_path_list[-1].initialize_path(src=sci_list[i], atm=atm, tel=est_tel, dm=dms, wfs=None, vibration=None, sci=red_scicam, delay=0)
 
 lightPathTasks = []
-for i in range(len(scao_light_path_list)):
-    lightPathTasks.append(delayed(scao_light_path_list[i].propagate)(True))
+for i in range(len(light_path_list)):
+    lightPathTasks.append(delayed(light_path_list[i].propagate)(True))
 
 test_logger.logger.info(f'The Modules initialization took {time.time()-t0} [s]')
 
@@ -207,7 +206,7 @@ test_logger.logger.info(f'The Modules initialization took {time.time()-t0} [s]')
 t0 = time.time()
 
 im_handler = InteractionMatrixHandler(test_logger.logger)
-im_handler.initialize_im_class(scao_light_path_list)
+im_handler.initialize_im_class(light_path_list)
 
 if load_modal_basis:
     im_handler.load_modalBasis(load_filename_modalBasis)
@@ -222,12 +221,17 @@ else:
 
 test_logger.logger.info(f'The IM creation took {time.time()-t0} [s]')
 
+# Define explicit control mask: 3 DMs x LPs
+# We want all 3 DMs to use the 7 WFSs (LPs 0-6), and ignore the science camera (LP 7-end)
+control_mask = [[True]*len(ngs_list) + [False]*len(sci_list) for _ in range(3)]
+
 # Controller class
 controller_kwargs = {'rcond':0.025, 
                     'beta':1e-4,
                     'gain':[0.4, 0.15, 0.15],
                     'decay':[0.9999, 0.99, 0.99],
-                    'ki':[0.0,0.0, 0.0]}
+                    'ki':[0.0, 0.0, 0.0],
+                    'control_mask': control_mask}
 
 controller = Controller(telescope=est_tel,
                         interactionMatrix=im_handler,
@@ -238,7 +242,7 @@ controller = Controller(telescope=est_tel,
 
 test_logger.logger.info('Beginning simulation')
 
-# SCAO loop
+# MCAO loop
 for i in range(nIterations):
     est_tel.logger.info(f'Iteration {i+1}')
     # Update the atmosphere
@@ -246,17 +250,27 @@ for i in range(nIterations):
     # Propagate the light
     Parallel(n_jobs=2, prefer="threads")(lightPathTasks)
     # Compute command
-    cmd = controller.computeControlAction(scao_light_path_list)
+    cmd = controller.computeControlAction(light_path_list)
     # Update the DM shape
     for j in range(len(dms)):
         dms[j].updateDMShape(cmd[j])
     # Share data with the GUI
-    sharepoint.shareData(scao_light_path_list, i, [atm], dms)              
- 
+    # sharepoint.shareData(light_path_list, i, [atm], dms)              
+    
+    # Log peak PSFs from science cameras (LPs 0, 2, 6, and 7)
+    psf_0 = np.max(light_path_list[7].sci_frame)
+    psf_1 = np.max(light_path_list[8].sci_frame)
+    psf_2 = np.max(light_path_list[12].sci_frame)
+    psf_3 = np.max(light_path_list[16].sci_frame)
+    psf_4 = np.max(light_path_list[20].sci_frame)
+    psf_5 = np.max(light_path_list[24].sci_frame)
+
+    test_logger.logger.info(f'Peak PSFs -> 0": {psf_0:.4f} | 3.75": {psf_1:.4f} | 7.5": {psf_2:.4f} | 15": {psf_3:.4f} | 20": {psf_4:.4f} | 25": {psf_5:.4f}')
+    
     # Save Data
     savepoint.save([atm], i)
     savepoint.save(dms, i)
-    savepoint.save(scao_light_path_list, i)
+    savepoint.save(light_path_list, i)
 
 test_logger.logger.info('Simulation ended.')
 

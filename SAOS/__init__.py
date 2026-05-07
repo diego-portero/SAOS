@@ -5,7 +5,11 @@ Created on Thu May 8 2025
 @author: nlinares
 """
 
-print("""
+import sys
+
+# Only print the banner when running interactively (not when imported by documentation tools)
+if sys.stdout.isatty():
+    print("""
       ███████  █████   ██████  ███████ 
       ██      ██   ██ ██    ██ ██      
       ███████ ███████ ██    ██ ███████ 

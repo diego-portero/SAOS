@@ -26,16 +26,7 @@ def generate_hadamard_modes(dm, nModes=None, useTorch=False, include_piston=Fals
         if include_piston:
             H_modes[dm.validAct, i] = H[i,:dm.nValidAct]
         else:
-            H_modes[dm.validAct, i] = H[i,:dm.nValidAct]
-
-    
-    # Make sure that the modes are orthogonal inside the valid region
-    H_modes_qr, _ =  np.linalg.qr(H_modes[dm.validAct,:])
-
-    H_modes_ortho = np.zeros_like(H_modes)
-
-    H_modes_ortho[dm.validAct,:] = H_modes_qr
-    H_modes_ortho[~dm.validAct,:] = 0.0
+            H_modes[dm.validAct, i] = H[i+1,:dm.nValidAct]
 
     if useTorch:
         return torch.tensor(H_modes, dtype=torch.float32)

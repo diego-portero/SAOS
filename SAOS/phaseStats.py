@@ -5,11 +5,9 @@ Created on Tue Aug 18 08:49:50 2020
 @author: cheritie
 """
 
-import json
+
 import random
 import time
-
-import jsonpickle
 import numpy as np
 import scipy as sp
 from numpy.random import RandomState
