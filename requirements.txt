@@ -3,6 +3,7 @@ mkdocs
 mkdocs-material
 mkdocs-jupyter
 mkdocstrings[python]
+ruff
 jupyter
 zmq
 h5py
