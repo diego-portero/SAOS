@@ -85,7 +85,7 @@ class DeformableMirror:
         misReg : MisRegistration, optional
             Misregistration object for geometrical offsets.
         typeDM : str, optional
-            Type of the DM: {cartesian, radial, custom}. By default, custom.
+            Type of the DM: {cartesian, radial, custom}. By default, cartesian. If 'custom', the `coordinates` parameter must be provided.
         floating_precision : int, optional
             Use 32 or 64-bit floats, by default 64.
         altitude : float, optional
@@ -109,6 +109,8 @@ class DeformableMirror:
                 Maximum mechanical stroke peak-to-valley in [m]. By default 100e-6 [m].
             dynamicModel : str, optional
                 Path to the h5 file containing the state-space model of the Deformable Mirror.
+            projector : np.ndarray, optional
+                Projector matrix used only when typeDM is 'custom'. Transforms the input coefficients into the custom modal basis.
         """
         # Setup the logger to handle the queue of info, warning and errors msgs in the simulator
         if logger is None:
@@ -162,11 +164,12 @@ class DeformableMirror:
         elif typeDM == 'radial':
             self.coordinates, self.validAct, self.nValidAct = self.generate_radial_dm()
         elif typeDM == 'custom':
-            self.logger.warning('DeformableMirror::__init__ - Custon DM is not yet supported in this new version, using default.')
-            self.typeDM = 'cartesian'
+            self.coordinates, self.validAct, self.nValidAct = self.generate_custom_dm(coordinates)
         else:
             self.logger.error('DeformableMirror::__init__ - Unrecognized DM type, using default. Implemented are: [cartesian, radial, custom]')
             raise ValueError('Unrecognized DM type, using default.')
+        
+        self.typeDM = typeDM
         
         # Compute scaling for the RBF Interpolation based on Gaussian function
         self.epsilon = np.sqrt(-1*np.log(self.mechCoupling))/self.pitch
@@ -176,8 +179,18 @@ class DeformableMirror:
         X, Y = np.meshgrid(x,x)
 
         self.high_res_coords = np.array([X.flatten(), Y.flatten()]).T
-        # Compute the interpolator for the shape fitting
-        self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
+        
+        if self.typeDM == 'custom' and modes is not None and kwargs.get('projector') is not None:
+            self.logger.info('DeformableMirror::__init__ - Using custom modes and projector for shape generation.')
+            self.modes = torch.as_tensor(modes, device=self.device, dtype=torch.float64)
+            self.projector = torch.as_tensor(kwargs.get('projector'), device=self.device, dtype=torch.float64)
+            self.L_interp = None
+            self.phi_eval = None
+        else:
+            self.modes = None
+            self.projector = None
+            # Compute the interpolator for the shape fitting
+            self.L_interp, self.phi_eval = self.precomputeGaussianRBFInterpolant(self.coordinates[self.validAct], self.high_res_coords, self.epsilon)
 
         # Load dynamic model, if specified
         if self.dynamic_model_path != '':
@@ -264,6 +277,42 @@ class DeformableMirror:
 
         # Second, define mask to obtain the valid actuators
 
+        r = np.sqrt(coordinates[:,0]**2 + coordinates[:,1]**2)
+        
+        if self.valid_act_thresh_outer is None:
+            self.valid_act_thresh_outer = self.dm_layer.D_fov/2 + self.validActThreshpercentage*self.pitch
+        
+        validAct  = r <= self.valid_act_thresh_outer
+        nValidAct = np.sum(validAct)    
+
+        return coordinates, validAct.flatten(), nValidAct
+
+    def generate_custom_dm(self, custom_coordinates):
+        """
+        Generate a custom distribution of actuator points based on provided coordinates,
+        with a logic mask filtering the points within the external pupil diameter.
+
+        Parameters
+        ----------
+        custom_coordinates : numpy.ndarray
+            X and Y coordinates arranged as [N, 2].
+
+        Returns
+        -------
+        coordinates : numpy.ndarray
+            X and Y coordinates arranged as [N, 2].
+        validAct : numpy.ndarray
+            Boolean mask of valid actuators.
+        nValidAct : int
+            Number of valid actuators.
+        """
+        if custom_coordinates is None:
+            self.logger.error('DeformableMirror::generate_custom_dm - Custom coordinates must be provided for custom DM type.')
+            raise ValueError('Custom coordinates not provided.')
+
+        coordinates = np.array(custom_coordinates, dtype=float)
+
+        # define mask to obtain the valid actuators
         r = np.sqrt(coordinates[:,0]**2 + coordinates[:,1]**2)
         
         if self.valid_act_thresh_outer is None:
@@ -601,9 +650,12 @@ class DeformableMirror:
         else:
             coefs_torch           = val
 
-        W = torch.cholesky_solve(coefs_torch, self.L_interp)
-
-        opd_highres = (self.phi_eval @ W).squeeze(1)
+        if hasattr(self, 'typeDM') and self.typeDM == 'custom' and self.modes is not None and self.projector is not None:
+            projected_coefs = self.projector @ coefs_torch
+            opd_highres = (self.modes @ projected_coefs).squeeze()
+        else:
+            W = torch.cholesky_solve(coefs_torch, self.L_interp)
+            opd_highres = (self.phi_eval @ W).squeeze(1)
 
         self.dm_layer.OPD     = opd_highres.cpu().numpy().reshape(self.dm_layer.D_px, self.dm_layer.D_px)
 
