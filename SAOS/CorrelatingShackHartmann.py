@@ -131,7 +131,7 @@ class CorrelatingShackHartmann:
         self.use_brightest                  = use_brightest
         self.unit_in_rad                    = unit_in_rad
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
        
         # Subapeture definition
         self.subaperture_size           = telescope.D / self.nSubap
@@ -893,7 +893,7 @@ class CorrelatingShackHartmann:
         # time during the execution and the number of subaps may vary!! --> Be careful, the IM shall vary accondingly
         if self.current_nPhoton != src.nPhoton:
             self.logger.info('CorrelatingShackHartmann::wfs_measure - Number of photons changed, updating flux on subaps')
-            self.initialize_flux(src, self.norm_flux)   
+            self.initialize_flux(src, self.norm_flux_map)   
         
         # compute fwhm
         fwhm = src.wavelength * 206265 / (self.subaperture_size * self.plate_scale)

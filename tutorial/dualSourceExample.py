@@ -37,9 +37,9 @@ nIterations = 3000
 
 scienceFs = 56. # Hz
 
-generate_new_atm = False
+generate_new_atm = True
 measure_new_IM = True
-load_modal_basis = True
+load_modal_basis = False
 
 nModes = None # [nModesASM, nModesM7]
 im_stroke = [1e-6, 7.5e-7] # in meters

@@ -166,7 +166,17 @@ class ExtendedSource(Source):
                        
         self.is_initialized = True
         
-    def photometry(self,arg):
+    # Source: Serpone, Nick & Horikoshi, Satoshi & Emeline, Alexei. (2010). 
+    # Microwaves in advanced oxidation processes for environmental applications. A brief review. 
+    # Journal of Photochemistry and Photobiology C-photochemistry Reviews - J PHOTOCHEM PHOTOBIOL C-PHOTO. 11. 114-131. 10.1016/j.jphotochemrev.2010.07.003. 
+    PHOTOMETRY_BANDS = {
+        'V':  [0.500e-6, 0.0, 1.14e11],
+        'V1': [0.525e-6, 0.0, 1.14e11],
+        'R':  [0.680e-6, 0.0, 1.14e11],
+        'IR': [1.300e-6, 0.0, 1.14e11],
+    }
+        
+    def photometry(self, arg):
         """
         Return photometric properties specific to solar sources.
 
@@ -178,30 +188,19 @@ class ExtendedSource(Source):
         Returns
         -------
         list
-            [wavelength, bandwidth, zero point flux] or -1 if not found.
+            [wavelength, bandwidth, zero point flux]
         """
         self.logger.debug('ExtendedSource::photometry')
-        # photometry object [wavelength, bandwidth, zeroPoint]
-        class phot:
-            pass
         
-        # Source: Serpone, Nick & Horikoshi, Satoshi & Emeline, Alexei. (2010). 
-        # Microwaves in advanced oxidation processes for environmental applications. A brief review. 
-        # Journal of Photochemistry and Photobiology C-photochemistry Reviews - J PHOTOCHEM PHOTOBIOL C-PHOTO. 11. 114-131. 10.1016/j.jphotochemrev.2010.07.003. 
-        phot.V      =  [0.500e-6, 0.0, 1.14e11]
-        phot.V1     =  [0.525e-6, 0.0, 1.14e11]
-        phot.R      =  [0.680e-6, 0.0, 1.14e11]
-        phot.IR     =  [1.300e-6, 0.0, 1.14e11]
-         
-        if isinstance(arg,str):
-            if hasattr(phot,arg):
-                return getattr(phot,arg)
-            else:
-                self.logger.error('ExtendedSource::photometry - Wrong name for the photometry object.')
-                raise ValueError('Wrong name for the photometry object.')
+        if not isinstance(arg, str):
+            self.logger.error('ExtendedSource::photometry - The photometry object takes a string as an input.')
+            raise ValueError('The photometry object takes a string as an input.')
+            
+        if arg in self.PHOTOMETRY_BANDS:
+            return self.PHOTOMETRY_BANDS[arg]
         else:
-            self.logger.error('ExtendedSource::photometry - The photometry object takes a scalar as an input.')
-            raise ValueError('The photometry object takes a scalar as an input.')
+            self.logger.error(f"ExtendedSource::photometry - Wrong name for the photometry object. Available bands: {', '.join(self.PHOTOMETRY_BANDS.keys())}")
+            raise ValueError(f"Wrong name for the photometry object. Available bands: {', '.join(self.PHOTOMETRY_BANDS.keys())}")
 
     def print_properties(self):
         """
