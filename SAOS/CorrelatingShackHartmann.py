@@ -131,7 +131,7 @@ class CorrelatingShackHartmann:
         self.use_brightest                  = use_brightest
         self.unit_in_rad                    = unit_in_rad
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
        
         # Subapeture definition
         self.subaperture_size           = telescope.D / self.nSubap

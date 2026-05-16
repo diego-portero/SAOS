@@ -155,7 +155,7 @@ class DeformableMirror:
         self.maxStrokePtV = kwargs.get('maxStrokePtV', 100e-6) # [m]
         self.dynamic_model_path = kwargs.get('dynamicModel', '')
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
 
         # Depending on the type of the DM, the coordinates are generated differently
         if typeDM == 'cartesian':

@@ -23,6 +23,66 @@ This module contains the `Source` class, used for modeling a natural star in ada
 """
 
 class Source:    
+    
+    # Photometry object properties: [wavelength, bandwidth, zeroPoint]
+    PHOTOMETRY_BANDS = {
+        'U':      [ 0.360e-6 , 0.070e-6 , 1.96e12 ],
+        'B':      [ 0.440e-6 , 0.100e-6 , 5.38e12 ],
+        'V0':     [ 0.500e-6 , 0.090e-6 , 3.64e12 ],
+        'V1':     [ 0.525e-6 , 0.090e-6 , 3.31e12 ],
+        'V':      [ 0.550e-6 , 0.090e-6 , 3.31e12 ],
+        'R':      [ 0.640e-6 , 0.150e-6 , 4.01e12 ],
+        'R2':     [ 0.650e-6 , 0.300e-6 , 7.9e12  ], 
+        'R3':     [ 0.600e-6 , 0.300e-6 , 8.56e12 ], 
+        'R4':     [ 0.680e-6 , 0.300e-6 , 7.66e12 ], 
+        'I':      [ 0.790e-6 , 0.150e-6 , 2.69e12 ],
+        'I1':     [ 0.700e-6 , 0.033e-6 , 0.67e12 ], 
+        'I2':     [ 0.750e-6 , 0.033e-6 , 0.62e12 ], 
+        'I3':     [ 0.800e-6 , 0.033e-6 , 0.58e12 ], 
+        'I4':     [ 0.700e-6 , 0.100e-6 , 2.02e12 ], 
+        'I5':     [ 0.850e-6 , 0.100e-6 , 1.67e12 ], 
+        'I6':     [ 1.000e-6 , 0.100e-6 , 1.42e12 ], 
+        'I7':     [ 0.850e-6 , 0.300e-6 , 5.00e12 ], 
+        'I8':     [ 0.750e-6 , 0.100e-6 , 1.89e12 ], 
+        'I9':     [ 0.850e-6 , 0.300e-6 , 5.00e12 ], 
+        'I10':    [ 0.900e-6 , 0.300e-6 , 4.72e12 ], 
+        'J':      [ 1.215e-6 , 0.260e-6 , 1.90e12 ],
+        'J2':     [ 1.550e-6 , 0.260e-6 , 1.49e12 ], 
+        'H':      [ 1.654e-6 , 0.290e-6 , 1.05e12 ],
+        'Kp':     [ 2.1245e-6 , 0.351e-6 , 0.62e12 ],
+        'Ks':     [ 2.157e-6 , 0.320e-6 , 0.55e12 ],
+        'K':      [ 2.179e-6 , 0.410e-6 , 0.70e12 ],
+        'K0':     [ 2.000e-6 , 0.410e-6 , 0.76e12 ],
+        'K1':     [ 2.400e-6 , 0.410e-6 , 0.64e12 ],
+        'L':      [ 3.547e-6 , 0.570e-6 , 2.5e11 ],
+        'M':      [ 4.769e-6 , 0.450e-6 , 8.4e10 ],
+        'Na':     [ 0.589e-6 , 0        , 3.3e12 ], 
+        'EOS':    [ 1.064e-6 , 0        , 3.3e12 ], 
+        'IR1310': [ 1.310e-6 , 0        , 2e12 ]  
+    }
+
+    @classmethod
+    def get_available_bands(cls):
+        """
+        Returns a list of available optical bands.
+
+        Returns
+        -------
+        list of str
+            Available optical bands.
+        """
+        return list(cls.PHOTOMETRY_BANDS.keys())
+
+    @classmethod
+    def print_available_bands(cls):
+        """
+        Prints the available optical bands and their properties.
+        """
+        print(f"{'Band':<8} | {'Wavelength (m)':<15} | {'Bandwidth (m)':<15} | {'Zero Point Flux':<15}")
+        print("-" * 65)
+        for band, props in cls.PHOTOMETRY_BANDS.items():
+            print(f"{band:<8} | {props[0]:<15.3e} | {props[1]:<15.3e} | {props[2]:<15.3e}")
+
     def __init__(self,
                  optBand:str,
                  magnitude:float,
@@ -39,7 +99,14 @@ class Source:
         Parameters
         ----------
         optBand : str
-            Optical band identifier (e.g., 'V', 'H').
+            Optical band identifier. Available bands include:
+            - 'U', 'B', 'V', 'V0', 'V1', 'R', 'R2'-'R4'
+            - 'I', 'I1'-'I10'
+            - 'J', 'J2', 'H'
+            - 'Kp', 'Ks', 'K', 'K0', 'K1'
+            - 'L', 'M', 'Na', 'EOS', 'IR1310'
+            Call Source.print_available_bands() to see their central wavelengths, 
+            bandwidths, and zero-point fluxes.
         magnitude : float
             Apparent magnitude of the star.
         coordinates : list, optional
@@ -113,55 +180,16 @@ class Source:
             List of [wavelength, bandwidth, zero-point flux] or -1 if invalid.
         """
         self.logger.debug('Source::photometry')
-        # photometry object [wavelength, bandwidth, zeroPoint]
-        class phot:
-            pass
-        
-        ## New entries with corrected zero point flux values 
-        phot.U      = [ 0.360e-6 , 0.070e-6 , 1.96e12 ]
-        phot.B      = [ 0.440e-6 , 0.100e-6 , 5.38e12 ]
-        phot.V0     = [ 0.500e-6 , 0.090e-6 , 3.64e12 ]
-        phot.V1     = [ 0.525e-6 , 0.090e-6 , 3.31e12 ]
-        phot.V      = [ 0.550e-6 , 0.090e-6 , 3.31e12 ]
-        phot.R      = [ 0.640e-6 , 0.150e-6 , 4.01e12 ]
-        phot.R2     = [ 0.650e-6 , 0.300e-6 , 7.9e12  ] 
-        phot.R3     = [ 0.600e-6 , 0.300e-6 , 8.56e12 ] 
-        phot.R4     = [ 0.680e-6 , 0.300e-6 , 7.66e12 ] 
-        phot.I      = [ 0.790e-6 , 0.150e-6 , 2.69e12 ]
-        phot.I1     = [ 0.700e-6 , 0.033e-6 , 0.67e12 ] 
-        phot.I2     = [ 0.750e-6 , 0.033e-6 , 0.62e12 ] 
-        phot.I3     = [ 0.800e-6 , 0.033e-6 , 0.58e12 ] 
-        phot.I4     = [ 0.700e-6 , 0.100e-6 , 2.02e12 ] 
-        phot.I5     = [ 0.850e-6 , 0.100e-6 , 1.67e12 ] 
-        phot.I6     = [ 1.000e-6 , 0.100e-6 , 1.42e12 ] 
-        phot.I7     = [ 0.850e-6 , 0.300e-6 , 5.00e12 ] 
-        phot.I8     = [ 0.750e-6 , 0.100e-6 , 1.89e12 ] 
-        phot.I9     = [ 0.850e-6 , 0.300e-6 , 5.00e12 ] 
-        phot.I10    = [ 0.900e-6 , 0.300e-6 , 4.72e12 ] 
-        phot.J      = [ 1.215e-6 , 0.260e-6 , 1.90e12 ]
-        phot.J2     = [ 1.550e-6 , 0.260e-6 , 1.49e12 ] 
-        phot.H      = [ 1.654e-6 , 0.290e-6 , 1.05e12 ]
-        phot.Kp     = [ 2.1245e-6 , 0.351e-6 , 0.62e12 ]
-        phot.Ks     = [ 2.157e-6 , 0.320e-6 , 0.55e12 ]
-        phot.K      = [ 2.179e-6 , 0.410e-6 , 0.70e12 ]
-        phot.K0     = [ 2.000e-6 , 0.410e-6 , 0.76e12 ]
-        phot.K1     = [ 2.400e-6 , 0.410e-6 , 0.64e12 ]
-
-        phot.L      = [ 3.547e-6 , 0.570e-6 , 2.5e11 ]
-        phot.M      = [ 4.769e-6 , 0.450e-6 , 8.4e10 ]
-        phot.Na     = [ 0.589e-6 , 0        , 3.3e12 ] 
-        phot.EOS    = [ 1.064e-6 , 0        , 3.3e12 ] 
-        phot.IR1310 = [ 1.310e-6 , 0        , 2e12 ]  
         
         if isinstance(arg,str):
-            if hasattr(phot,arg):
-                return getattr(phot,arg)
+            if arg in self.PHOTOMETRY_BANDS:
+                return self.PHOTOMETRY_BANDS[arg]
             else:
-                self.logger.error('Source::photometry - Wrong name for the photometry object.')
-                raise ValueError('Wrong name for the photometry object.')
+                self.logger.error(f'Source::photometry - Wrong name for the photometry object. Available bands: {self.get_available_bands()}')
+                raise ValueError(f'Wrong name for the photometry object. Available bands: {self.get_available_bands()}')
         else:
-            self.logger.error('Source::photometry - The photometry object takes a scalar as an input.')
-            raise ValueError('The photometry object takes a scalar as an input.')   
+            self.logger.error('Source::photometry - The photometry object takes a string as an input.')
+            raise ValueError('The photometry object takes a string as an input.')   
             
     def print_properties(self):
         """

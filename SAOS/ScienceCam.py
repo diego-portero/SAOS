@@ -101,7 +101,7 @@ class ScienceCam:
         self.decimation          = decimation
         self.lightRatio          = lightRatio
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
 
         if integrationTime is None:
             self.integrationTime = self.samplingTime
